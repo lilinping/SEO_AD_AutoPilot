@@ -73,36 +73,75 @@ SEO-AD AutoPilot is an open-source platform that automates the full SEO-AD lifec
 ### 1. Clone & Setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/seo-ad-autopilot.git
-cd seo-ad-autopilot
+git clone https://github.com/lilinping/SEO_AD_AutoPilot.git
+cd SEO_AD_AutoPilot
+```
 
-# Python virtual environment
+**macOS / Linux:**
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt  # or: pip install fastapi uvicorn httpx playwright
+pip install -r requirements.txt
+pnpm install
+```
 
-# Node.js dependencies
+**Windows (PowerShell):**
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 pnpm install
 ```
 
 ### 2. Configure
 
+**macOS / Linux:**
+
 ```bash
 cp .env.example .env
-# Edit .env with your settings (see Configuration below)
 ```
+
+**Windows (PowerShell):**
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Then edit `.env` with your settings (see [Configuration](#configuration) below).
 
 ### 3. Run
 
+**macOS / Linux (requires `make`):**
+
 ```bash
+make api-dev      # Start API server at :8000
+make web-dev      # Start web console at :3000
+make seed         # Seed demo workspace
+```
+
+**Windows (no `make` required):**
+
+Option A - Use batch scripts (recommended):
+
+```powershell
+.\setup.bat      # First time: install dependencies
+.\start-api.bat  # Start API server
+.\start-web.bat  # Start web console (in another terminal)
+```
+
+Option B - Manual commands:
+
+```powershell
 # Start API server
-make api-dev
+.venv\Scripts\uvicorn.exe apps.api.seo_ad_autopilot.app:create_app --factory --reload --host 127.0.0.1 --port 8000
 
 # Start web console (in another terminal)
-make web-dev
+pnpm --dir apps/web dev
 
 # Seed demo workspace
-make seed
+.venv\Scripts\python.exe -m apps.api.seo_ad_autopilot.seed
 ```
 
 Open http://localhost:3000 to access the console.
@@ -205,6 +244,8 @@ seo-ad-autopilot/
 
 ### Available Commands
 
+**macOS / Linux (via Make):**
+
 ```bash
 make api-dev       # Start API server with hot-reload
 make api-test      # Run API tests
@@ -214,6 +255,34 @@ make web-typecheck # Type-check frontend code
 make seed          # Seed demo workspace data
 make worker        # Start background worker
 make test          # Run all tests
+```
+
+**Windows (PowerShell):**
+
+```powershell
+# API server
+.venv\Scripts\uvicorn.exe apps.api.seo_ad_autopilot.app:create_app --factory --reload --host 127.0.0.1 --port 8000
+
+# API tests
+.venv\Scripts\python.exe -m unittest apps.api.tests.test_smoke_unittest -v
+
+# Web console
+pnpm --dir apps/web dev
+
+# Build
+pnpm --dir apps/web build
+
+# Type-check
+pnpm --dir apps/web typecheck
+
+# Seed
+.venv\Scripts\python.exe -m apps.api.seo_ad_autopilot.seed
+
+# Worker
+.venv\Scripts\python.exe -m apps.worker.main
+
+# All tests
+.venv\Scripts\python.exe -m unittest apps.api.tests.test_smoke_unittest -v
 ```
 
 ### Running Tests
