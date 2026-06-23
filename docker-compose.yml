@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./var/seo-ad-autopilot.db
+      - REDIS_URL=redis://redis:6379/0
+      - SEO_AD_BOT_API_KEY=dev-key
+    volumes:
+      - ./var:/app/var
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_AUTOPILOT_API_URL=http://api:8000/api
+    depends_on:
+      - api
+
+volumes:
+  redis_data:

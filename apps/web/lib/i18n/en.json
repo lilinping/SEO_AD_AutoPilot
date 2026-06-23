@@ -1,0 +1,201 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "back": "Back",
+    "next": "Next",
+    "search": "Search",
+    "analyze": "Analyze",
+    "export": "Export",
+    "refresh": "Refresh",
+    "open": "Open",
+    "view_details": "View details",
+    "try_again": "Try again",
+    "go_overview": "Go to overview",
+    "no_data": "No data available",
+    "requires_api": "This feature requires the backend API to be running."
+  },
+  "nav": {
+    "overview": "Overview",
+    "dashboard": "Dashboard",
+    "analyze": "Analyze",
+    "projects": "Projects",
+    "strategy": "Strategy",
+    "quality": "Quality",
+    "acceptance": "Acceptance",
+    "approvals": "Approvals",
+    "monitor": "Monitor",
+    "settings": "Settings",
+    "ecommerce": "E-commerce",
+    "keywords": "Keywords"
+  },
+  "ecommerce": {
+    "title": "E-commerce Analysis",
+    "subtitle": "Analyze product listings, conversion funnels, and get optimization recommendations",
+    "analyzing": "Analyzing product page..."
+  },
+  "keywords": {
+    "title": "Keyword Research",
+    "subtitle": "Analyze keywords: difficulty, volume, intent, SERP features, and clustering"
+  },
+  "home": {
+    "title": "SEO-AD AutoPilot",
+    "subtitle": "Multi-Engine SEO + GEO + Auto Ad Discovery",
+    "hero_title": "Growth execution that stops at the preview gate.",
+    "hero_description": "Turns site sensing into structured opportunities, preview evidence, approval-gated releases, and rollback-ready monitoring.",
+    "launch_project": "Launch project",
+    "open_acceptance": "Open acceptance",
+    "review_gates": "Review gates",
+    "preview_first": "PREVIEW FIRST",
+    "rollback_ready": "ROLLBACK READY",
+    "approval_gated": "APPROVAL GATED",
+    "mission_control": "MISSION CONTROL",
+    "projects": "PROJECTS",
+    "awaiting_approval": "AWAITING APPROVAL",
+    "deployed": "DEPLOYED",
+    "high_risk": "HIGH RISK",
+    "signals": "Signals",
+    "current_state": "Current state",
+    "workspace_portfolio": "Workspace portfolio",
+    "each_card_points": "Each card points to a full analysis, plan, preview, and approval chain.",
+    "guardrails": "Guardrails",
+    "risk_thresholds": "Risk thresholds and rollback checks are visible instead of hidden in a queue."
+  },
+  "projects": {
+    "title": "Project portfolio",
+    "hero_description": "Manage your projects, view analysis results, and track deployment status.",
+    "total_projects": "Total Projects",
+    "in_workspace": "in workspace",
+    "all_projects": "All projects",
+    "no_projects": "No projects found. Create a new project to get started.",
+    "strategy_reports": "strategy reports"
+  },
+  "strategy": {
+    "title": "Content, ads, and technical SEO",
+    "hero_description": "View strategy reports for your projects including content opportunities, ad readiness, and technical fixes.",
+    "strategy_by_project": "Strategy by project"
+  },
+  "quality": {
+    "title": "Quality assurance",
+    "hero_description": "Monitor prompt versions, regression samples, and skill quality.",
+    "quality_reports": "quality reports",
+    "quality_overview": "Quality overview"
+  },
+  "acceptance": {
+    "title": "Acceptance and sign-off",
+    "hero_description": "Review acceptance criteria, deployment readiness, and final sign-off before release.",
+    "gates": "Gates",
+    "acceptance_gates": "acceptance gates",
+    "passed": "Passed",
+    "gates_passed": "gates passed",
+    "failed": "Failed",
+    "gates_failed": "gates failed",
+    "acceptance_status": "Acceptance status"
+  },
+  "approvals": {
+    "title": "Approval gates",
+    "hero_description": "Review and approve changes before deployment. All high-risk actions require approval.",
+    "pending": "Pending",
+    "awaiting_approval": "awaiting approval",
+    "approved": "Approved",
+    "approved_today": "approved today",
+    "rejected": "Rejected",
+    "rejected_today": "rejected today",
+    "approval_queue": "Approval queue"
+  },
+  "monitor": {
+    "title": "Monitoring dashboard",
+    "hero_description": "Track performance, detect regressions, and manage rollback readiness.",
+    "health": "Health",
+    "system_health": "system health",
+    "alerts": "Alerts",
+    "active_alerts": "active alerts",
+    "rollbacks": "Rollbacks",
+    "available_rollbacks": "available rollbacks",
+    "system_status": "System status"
+  },
+  "settings": {
+    "title": "Workspace settings",
+    "hero_description": "Configure policies, connections, workers, and skill registry.",
+    "policy": "Policy",
+    "auto_deploy_settings": "auto deploy settings",
+    "workers": "Workers",
+    "worker_config": "worker configuration",
+    "skills": "Skills",
+    "registered_skills": "registered skills",
+    "configuration": "Configuration"
+  },
+  "analyze": {
+    "title": "Site Analysis",
+    "subtitle": "Analyze a website",
+    "hero_title": "Analyze any website for SEO, GEO, and ad readiness",
+    "hero_description": "Enter a URL to get comprehensive analysis across traditional search engines, AI search engines, and discover the best ad platforms for your site.",
+    "start_analysis": "Start Analysis",
+    "url_placeholder": "https://example.com",
+    "analyzing": "Analyzing...",
+    "results": "Analysis Results"
+  },
+  "geo": {
+    "title": "GEO Analysis",
+    "subtitle": "Generative Engine Optimization scores",
+    "overall_score": "Overall GEO Score",
+    "citation_score": "Citation Score",
+    "entity_score": "Entity Score",
+    "structure_score": "Structure Score",
+    "authority_score": "Authority Score",
+    "ai_presence": "AI Presence",
+    "out_of_100": "Out of 100",
+    "source_references": "Source references",
+    "entity_recognition": "Entity recognition",
+    "content_structure": "Content structure",
+    "trust_signals": "Trust signals",
+    "ai_search_visibility": "AI search visibility"
+  },
+  "search": {
+    "title": "Search Results",
+    "subtitle": "Multi-engine rankings",
+    "position": "Position",
+    "engine": "Engine"
+  },
+  "ads": {
+    "title": "Ad Platforms",
+    "subtitle": "Recommended platforms",
+    "auto_discover": "Auto-discovery",
+    "match": "match",
+    "est_rpm": "Est. RPM",
+    "requirements": "Requirements",
+    "no_platforms": "No platforms recommended"
+  },
+  "recommendations": {
+    "title": "Recommendations",
+    "subtitle": "Optimization actions",
+    "priority": "Priority",
+    "impact": "Impact",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low"
+  },
+  "engines": {
+    "seo": "Traditional SEO",
+    "geo": "Generative Engine Optimization",
+    "google": "Google",
+    "bing": "Bing",
+    "baidu": "Baidu",
+    "yandex": "Yandex",
+    "chatgpt": "ChatGPT",
+    "perplexity": "Perplexity",
+    "claude": "Claude"
+  },
+  "ad_platforms": {
+    "adsense": "Google AdSense",
+    "mediavine": "Mediavine",
+    "ezoic": "Ezoic",
+    "adthrive": "AdThrive",
+    "monumetric": "Monumetric",
+    "pubmatic": "PubMatic"
+  }
+}

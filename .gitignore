@@ -1,0 +1,41 @@
+.next/
+node_modules/
+apps/web/.next/
+apps/web/node_modules/
+dist/
+coverage/
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+var/
+*.pyc
+*.sqlite3
+*.db
+
+# Environment and secrets
+.env
+.env.local
+.env.production
+*.pem
+*.key
+
+# Debug
+tmp-debug-*.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs (keep in repo but ignore generated)
+SEO-AD_AutoPilot_文档包/*.docx
+
+# Agent memory
+.mimocode/

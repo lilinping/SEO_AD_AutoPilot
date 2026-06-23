@@ -1,0 +1,201 @@
+{
+  "common": {
+    "loading": "加载中...",
+    "error": "错误",
+    "success": "成功",
+    "save": "保存",
+    "cancel": "取消",
+    "confirm": "确认",
+    "back": "返回",
+    "next": "下一步",
+    "search": "搜索",
+    "analyze": "分析",
+    "export": "导出",
+    "refresh": "刷新",
+    "open": "打开",
+    "view_details": "查看详情",
+    "try_again": "重试",
+    "go_overview": "返回概览",
+    "no_data": "暂无数据",
+    "requires_api": "此功能需要后端 API 运行。"
+  },
+  "nav": {
+    "overview": "概览",
+    "dashboard": "仪表盘",
+    "analyze": "分析",
+    "projects": "项目",
+    "strategy": "策略",
+    "quality": "质量",
+    "acceptance": "验收",
+    "approvals": "审批",
+    "monitor": "监控",
+    "settings": "设置",
+    "ecommerce": "电商分析",
+    "keywords": "关键词研究"
+  },
+  "ecommerce": {
+    "title": "电商分析",
+    "subtitle": "分析产品 Listing、转化漏斗，获取优化建议",
+    "analyzing": "正在分析产品页面..."
+  },
+  "keywords": {
+    "title": "关键词研究",
+    "subtitle": "分析关键词难度、搜索量、意图、SERP 特征和聚类"
+  },
+  "home": {
+    "title": "SEO-AD AutoPilot",
+    "subtitle": "多引擎 SEO + GEO + 自动广告发现",
+    "hero_title": "增长执行在预览门控前停止。",
+    "hero_description": "将站点感知转化为结构化机会、预览证据、审批门控发布和回滚就绪监控。",
+    "launch_project": "启动项目",
+    "open_acceptance": "打开验收",
+    "review_gates": "审查门控",
+    "preview_first": "预览优先",
+    "rollback_ready": "回滚就绪",
+    "approval_gated": "审批门控",
+    "mission_control": "控制中心",
+    "projects": "项目",
+    "awaiting_approval": "等待审批",
+    "deployed": "已部署",
+    "high_risk": "高风险",
+    "signals": "信号",
+    "current_state": "当前状态",
+    "workspace_portfolio": "工作区项目",
+    "each_card_points": "每张卡片指向完整的分析、计划、预览和审批链。",
+    "guardrails": "防护措施",
+    "risk_thresholds": "风险阈值和回滚检查公开可见，而非隐藏在队列中。"
+  },
+  "projects": {
+    "title": "项目组合",
+    "hero_description": "管理项目、查看分析结果和跟踪部署状态。",
+    "total_projects": "项目总数",
+    "in_workspace": "个工作区站点",
+    "all_projects": "所有项目",
+    "no_projects": "未找到项目。创建新项目以开始。",
+    "strategy_reports": "策略报告"
+  },
+  "strategy": {
+    "title": "内容、广告和技术 SEO",
+    "hero_description": "查看项目策略报告，包括内容机会、广告就绪度和技术修复。",
+    "strategy_by_project": "按项目查看策略"
+  },
+  "quality": {
+    "title": "质量保证",
+    "hero_description": "监控提示词版本、回归样本和技能质量。",
+    "quality_reports": "质量报告",
+    "quality_overview": "质量概览"
+  },
+  "acceptance": {
+    "title": "验收与签收",
+    "hero_description": "审查验收标准、部署就绪度和发布前最终签收。",
+    "gates": "门控",
+    "acceptance_gates": "验收门控",
+    "passed": "通过",
+    "gates_passed": "已通过门控",
+    "failed": "失败",
+    "gates_failed": "失败门控",
+    "acceptance_status": "验收状态"
+  },
+  "approvals": {
+    "title": "审批门控",
+    "hero_description": "在部署前审查和批准更改。所有高风险操作都需要审批。",
+    "pending": "待处理",
+    "awaiting_approval": "等待审批",
+    "approved": "已批准",
+    "approved_today": "今日已批准",
+    "rejected": "已拒绝",
+    "rejected_today": "今日已拒绝",
+    "approval_queue": "审批队列"
+  },
+  "monitor": {
+    "title": "监控仪表盘",
+    "hero_description": "跟踪性能、检测回归并管理回滚就绪度。",
+    "health": "健康状态",
+    "system_health": "系统健康",
+    "alerts": "告警",
+    "active_alerts": "活跃告警",
+    "rollbacks": "回滚",
+    "available_rollbacks": "可用回滚",
+    "system_status": "系统状态"
+  },
+  "settings": {
+    "title": "工作区设置",
+    "hero_description": "配置策略、连接、工作进程和技能注册表。",
+    "policy": "策略",
+    "auto_deploy_settings": "自动部署设置",
+    "workers": "工作进程",
+    "worker_config": "工作进程配置",
+    "skills": "技能",
+    "registered_skills": "已注册技能",
+    "configuration": "配置"
+  },
+  "analyze": {
+    "title": "站点分析",
+    "subtitle": "分析网站",
+    "hero_title": "分析任何网站的 SEO、GEO 和广告就绪度",
+    "hero_description": "输入 URL 获取全面分析，涵盖传统搜索引擎、AI 搜索引擎，并发现最适合您网站的广告平台。",
+    "start_analysis": "开始分析",
+    "url_placeholder": "https://example.com",
+    "analyzing": "分析中...",
+    "results": "分析结果"
+  },
+  "geo": {
+    "title": "GEO 分析",
+    "subtitle": "生成式引擎优化评分",
+    "overall_score": "综合 GEO 评分",
+    "citation_score": "引用评分",
+    "entity_score": "实体评分",
+    "structure_score": "结构评分",
+    "authority_score": "权威评分",
+    "ai_presence": "AI 存在感",
+    "out_of_100": "满分 100",
+    "source_references": "来源引用",
+    "entity_recognition": "实体识别",
+    "content_structure": "内容结构",
+    "trust_signals": "信任信号",
+    "ai_search_visibility": "AI 搜索可见度"
+  },
+  "search": {
+    "title": "搜索结果",
+    "subtitle": "多引擎排名",
+    "position": "排名",
+    "engine": "引擎"
+  },
+  "ads": {
+    "title": "广告平台",
+    "subtitle": "推荐平台",
+    "auto_discover": "自动发现",
+    "match": "匹配度",
+    "est_rpm": "预估 RPM",
+    "requirements": "要求",
+    "no_platforms": "暂无推荐平台"
+  },
+  "recommendations": {
+    "title": "优化建议",
+    "subtitle": "优化行动",
+    "priority": "优先级",
+    "impact": "影响",
+    "high": "高",
+    "medium": "中",
+    "low": "低"
+  },
+  "engines": {
+    "seo": "传统 SEO",
+    "geo": "生成式引擎优化",
+    "google": "Google",
+    "bing": "Bing",
+    "baidu": "百度",
+    "yandex": "Yandex",
+    "chatgpt": "ChatGPT",
+    "perplexity": "Perplexity",
+    "claude": "Claude"
+  },
+  "ad_platforms": {
+    "adsense": "Google AdSense",
+    "mediavine": "Mediavine",
+    "ezoic": "Ezoic",
+    "adthrive": "AdThrive",
+    "monumetric": "Monumetric",
+    "pubmatic": "PubMatic"
+  }
+}

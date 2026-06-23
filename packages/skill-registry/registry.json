@@ -1,0 +1,464 @@
+{
+  "version": "1.0.0",
+  "skills": [
+    {
+      "skill_id": "read/site-sniffer",
+      "suite": "read",
+      "name": "Site Sniffer",
+      "description": "Classify a site, extract surface signals, and produce a structured profile without changing the target.",
+      "parameters": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+          "url": { "type": "string" },
+          "site_name": { "type": "string" }
+        }
+      },
+      "is_destructive": false,
+      "required_approval": false,
+      "rollback_supported": false,
+      "observability": { "events": ["start", "finish", "error"], "fields": ["latency_ms", "risk_score"] },
+      "failure_contract": "Return a safe profile with evidence gaps if the page cannot be resolved."
+    },
+    {
+      "skill_id": "read/page-snapshotter",
+      "suite": "read",
+      "name": "Page Snapshotter",
+      "description": "Capture page metadata, headings, links, images, and budget markers for analysis.",
+      "parameters": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+          "url": { "type": "string" },
+          "max_pages": { "type": "integer" }
+        }
+      },
+      "is_destructive": false,
+      "required_approval": false,
+      "rollback_supported": false,
+      "observability": { "events": ["page_loaded", "dom_parsed"], "fields": ["page_count", "word_count"] },
+      "failure_contract": "Emit partial snapshots and mark pages as unavailable if rendering fails."
+    },
+    {
+      "skill_id": "seo/style-extractor",
+      "suite": "seo",
+      "name": "Style Extractor",
+      "description": "Derive a content style profile, tone, and visual language from the existing site.",
+      "parameters": { "type": "object", "required": ["site_profile"] },
+      "is_destructive": false,
+      "required_approval": true,
+      "rollback_supported": false,
+      "observability": { "events": ["profiled"], "fields": ["tone", "brand_voice"] },
+      "failure_contract": "Fall back to a neutral editorial style when brand signals are insufficient."
+    },
+    {
+      "skill_id": "seo/content-opportunity-finder",
+      "suite": "seo",
+      "name": "Content Opportunity Finder",
+      "description": "Identify high-value SEO content opportunities, gaps, and snippet candidates.",
+      "parameters": { "type": "object", "required": ["site_profile", "pages"] },
+      "is_destructive": false,
+      "required_approval": true,
+      "rollback_supported": false,
+      "observability": { "events": ["opportunities_found"], "fields": ["seo_score", "query_count"] },
+      "failure_contract": "Return opportunities only from observed signals and never invent traffic claims."
+    },
+    {
+      "skill_id": "seo/adaptive-component-generator",
+      "suite": "seo",
+      "name": "Adaptive Component Generator",
+      "description": "Generate page modules that improve intent match, readability, and conversion support.",
+      "parameters": { "type": "object", "required": ["opportunities"] },
+      "is_destructive": false,
+      "required_approval": true,
+      "rollback_supported": true,
+      "observability": { "events": ["module_planned"], "fields": ["component_count"] },
+      "failure_contract": "If a component cannot be generated safely, omit it and keep the page intact."
+    },
+    {
+      "skill_id": "seo/technical-seo-patcher",
+      "suite": "seo",
+      "name": "Technical SEO Patcher",
+      "description": "Patch metadata, canonical tags, structured data, and crawlability defects.",
+      "parameters": { "type": "object", "required": ["pages"] },
+      "is_destructive": true,
+      "required_approval": true,
+      "rollback_supported": true,
+      "observability": { "events": ["patched"], "fields": ["meta_changes", "schema_changes"] },
+      "failure_contract": "Abort if the patch would remove canonical integrity or critical content."
+    },
+    {
+      "skill_id": "seo/schema-builder",
+      "suite": "seo",
+      "name": "Schema Builder",
+      "description": "Author safe schema markup for products, articles, organizations, and FAQs.",
+      "parameters": { "type": "object", "required": ["site_profile"] },
+      "is_destructive": false,
+      "required_approval": true,
+      "rollback_supported": true,
+      "observability": { "events": ["schema_emitted"], "fields": ["schema_types"] },
+      "failure_contract": "Emit valid schema or nothing at all."
+    },
+    {
+      "skill_id": "seo/internal-link-builder",
+      "suite": "seo",
+      "name": "Internal Link Builder",
+      "description": "Propose internal link paths that strengthen authority flow and discovery.",
+      "parameters": { "type": "object", "required": ["pages"] },
+      "is_destructive": false,
+      "required_approval": true,
+      "rollback_supported": true,
+      "observability": { "events": ["links_planned"], "fields": ["link_count"] },
+      "failure_contract": "Keep anchors natural and never generate deceptive link text."
+    },
+    {
+      "skill_id": "ad/ad-slot-auditor",
+      "suite": "ad",
+      "name": "Ad Slot Auditor",
+      "description": "Evaluate page locations for native or programmatic ad inventory without harming UX.",
+      "parameters": { "type": "object", "required": ["site_profile", "pages"] },
+      "is_destructive": false,
+      "required_approval": true,
+      "rollback_supported": false,
+      "observability": { "events": ["slots_scored"], "fields": ["ad_fit_score"] },
+      "failure_contract": "Return a do-not-recommend result when ad placement would violate policy or trust."
+    },
+    {
+      "skill_id": "ad/provider-integrator",
+      "suite": "ad",
+      "name": "Provider Integrator",
+      "description": "Match safe ad providers and sponsorship templates to the inventory plan.",
+      "parameters": { "type": "object", "required": ["ad_candidates"] },
+      "is_destructive": false,
+      "required_approval": true,
+      "rollback_supported": true,
+      "observability": { "events": ["provider_selected"], "fields": ["provider_count"] },
+      "failure_contract": "Never select providers that are incompatible with the brand or inventory policy."
+    },
+    {
+      "skill_id": "ad/ad-wrapper-renderer",
+      "suite": "ad",
+      "name": "Ad Wrapper Renderer",
+      "description": "Render compliant ad containers and preserve the surrounding layout contract.",
+      "parameters": { "type": "object", "required": ["placements"] },
+      "is_destructive": true,
+      "required_approval": true,
+      "rollback_supported": true,
+      "observability": { "events": ["wrapper_rendered"], "fields": ["slot_count"] },
+      "failure_contract": "Disable the wrapper if it overlaps CTAs or exceeds the allowed density."
+    },
+    {
+      "skill_id": "ad/ad-telemetry-binder",
+      "suite": "ad",
+      "name": "Ad Telemetry Binder",
+      "description": "Attach safe telemetry hooks for ad viewability, CTR, and revenue snapshots.",
+      "parameters": { "type": "object", "required": ["placements"] },
+      "is_destructive": false,
+      "required_approval": true,
+      "rollback_supported": true,
+      "observability": { "events": ["telemetry_bound"], "fields": ["metric_count"] },
+      "failure_contract": "Skip telemetry when it cannot be instrumented without privacy or policy risk."
+    },
+    {
+      "skill_id": "deploy/github-pr-creator",
+      "suite": "deploy",
+      "name": "GitHub PR Creator",
+      "description": "Package the plan into a pull request with preview evidence and rollback notes.",
+      "parameters": { "type": "object", "required": ["plan", "preview"] },
+      "is_destructive": true,
+      "required_approval": true,
+      "rollback_supported": true,
+      "observability": { "events": ["pr_created"], "fields": ["branch", "pr_url"] },
+      "failure_contract": "If the PR cannot be created, keep the artifact local and report the reason."
+    },
+    {
+      "skill_id": "deploy/cms-plugin-applier",
+      "suite": "deploy",
+      "name": "CMS Plugin Applier",
+      "description": "Apply approved content or layout changes to a CMS draft or staging environment.",
+      "parameters": { "type": "object", "required": ["cms_name", "payload"] },
+      "is_destructive": true,
+      "required_approval": true,
+      "rollback_supported": true,
+      "observability": { "events": ["cms_written"], "fields": ["draft_id", "status"] },
+      "failure_contract": "If the CMS rejects the change, stop and keep the draft unmodified."
+    },
+    {
+      "skill_id": "deploy/universal-script-injector",
+      "suite": "deploy",
+      "name": "Universal Script Injector",
+      "description": "Package an approved script for safe site-wide insertion with explicit rollback hooks.",
+      "parameters": { "type": "object", "required": ["script"] },
+      "is_destructive": true,
+      "required_approval": true,
+      "rollback_supported": true,
+      "observability": { "events": ["script_prepared"], "fields": ["script_size"] },
+      "failure_contract": "Refuse to emit code if the insertion target or rollback path is missing."
+    },
+    {
+      "skill_id": "deploy/rollback-executor",
+      "suite": "deploy",
+      "name": "Rollback Executor",
+      "description": "Generate and execute a safe reversal path for any approved deployment.",
+      "parameters": { "type": "object", "required": ["deployment_record"] },
+      "is_destructive": true,
+      "required_approval": true,
+      "rollback_supported": true,
+      "observability": { "events": ["rollback_ready", "rollback_run"], "fields": ["commands"] },
+      "failure_contract": "If no reversal path exists, report that rollback is unsupported and stop."
+    },
+    {
+      "skill_id": "observe/monitoring-binder",
+      "suite": "observe",
+      "name": "Monitoring Binder",
+      "description": "Attach post-deploy metrics and health checks to the task lifecycle.",
+      "parameters": { "type": "object", "required": ["task_id"] },
+      "is_destructive": false,
+      "required_approval": false,
+      "rollback_supported": false,
+      "observability": { "events": ["metrics_captured"], "fields": ["seo_score", "traffic_delta"] },
+      "failure_contract": "Collect whatever metrics are available and label any gaps explicitly."
+    },
+    {
+      "skill_id": "observe/alert-router",
+      "suite": "observe",
+      "name": "Alert Router",
+      "description": "Route alerts when metrics deteriorate or rollback is required.",
+      "parameters": { "type": "object", "required": ["metric_snapshot"] },
+      "is_destructive": false,
+      "required_approval": false,
+      "rollback_supported": false,
+      "observability": { "events": ["alert_emitted"], "fields": ["severity", "reason"] },
+      "failure_contract": "Emit a warning without blocking the core workflow if the alert channel is unavailable."
+    },
+    {
+      "skill_id": "ecommerce/amazon-ads-report",
+      "suite": "ecommerce",
+      "name": "Amazon Ads Report",
+      "description": "Fetch Amazon Ads reports for SP/SB/SD. Automatically creates, waits, downloads, and extracts reports.",
+      "parameters": {
+        "type": "object",
+        "required": ["profile_id", "report_type_id", "ad_product", "group_by", "columns"],
+        "properties": {
+          "profile_id": { "type": "integer", "description": "Amazon Ads profile ID" },
+          "region": { "type": "string", "default": "NA", "enum": ["NA", "EU", "FE"] },
+          "report_type_id": { "type": "string", "description": "Report type (e.g. spCampaigns)" },
+          "ad_product": { "type": "string", "enum": ["SPONSORED_PRODUCTS", "SPONSORED_BRANDS", "SPONSORED_DISPLAY"] },
+          "group_by": { "type": "array", "items": { "type": "string" } },
+          "columns": { "type": "array", "items": { "type": "string" } },
+          "start_date": { "type": "string", "format": "date" },
+          "end_date": { "type": "string", "format": "date" },
+          "time_unit": { "type": "string", "enum": ["DAILY", "SUMMARY"], "default": "SUMMARY" },
+          "filters": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      "is_destructive": false,
+      "required_approval": false,
+      "rollback_supported": false,
+      "observability": { "events": ["report_created", "report_downloaded", "report_failed"], "fields": ["report_id", "ad_product", "latency_ms"] },
+      "failure_contract": "Return structured error with httpStatus and failureReason for upstream failures."
+    },
+    {
+      "skill_id": "ecommerce/amazon-ads-campaign-analyzer",
+      "suite": "ecommerce",
+      "name": "Amazon Ads Campaign Analyzer",
+      "description": "Analyze Amazon Ads campaign performance, calculate metrics, and generate optimization recommendations.",
+      "parameters": {
+        "type": "object",
+        "required": ["profile_id", "start_date", "end_date"],
+        "properties": {
+          "profile_id": { "type": "integer", "description": "Amazon Ads profile ID" },
+          "region": { "type": "string", "default": "NA" },
+          "start_date": { "type": "string", "format": "date" },
+          "end_date": { "type": "string", "format": "date" },
+          "target_acos": { "type": "number", "default": 30.0, "description": "Target ACoS percentage" },
+          "report_types": { "type": "array", "items": { "type": "string" }, "default": ["spCampaigns"] }
+        }
+      },
+      "is_destructive": false,
+      "required_approval": false,
+      "rollback_supported": false,
+      "observability": { "events": ["analysis_complete"], "fields": ["campaign_count", "total_spend", "total_sales"] },
+      "failure_contract": "Return partial analysis with available data if some reports fail."
+    },
+    {
+      "skill_id": "ecommerce/analysis",
+      "suite": "ecommerce",
+      "name": "E-commerce Analysis",
+      "description": "Comprehensive e-commerce product listing, conversion funnel, and competitor analysis. Supports Amazon, Shopify, WooCommerce, and custom platforms.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "Product page URL" },
+          "html": { "type": "string", "description": "Raw HTML content of product page" },
+          "product_data": { "type": "object", "description": "Pre-parsed product data" },
+          "scope": { "type": "string", "enum": ["full", "listing", "pricing", "conversion", "competitors"], "default": "full" },
+          "platform": { "type": "string", "enum": ["amazon", "shopify", "woocommerce", "magento", "custom", "auto"], "default": "auto" },
+          "competitors": { "type": "array", "items": { "type": "string" }, "description": "List of competitor URLs" },
+          "target_market": { "type": "string", "default": "US" }
+        }
+      },
+      "is_destructive": false,
+      "required_approval": false,
+      "rollback_supported": false,
+      "observability": { "events": ["analysis_complete"], "fields": ["listing_score", "conversion_score", "platform"] },
+      "failure_contract": "Return partial analysis with available data if some sections cannot be analyzed."
+    },
+    {
+      "skill_id": "seo/dataforseo-keyword-research",
+      "suite": "seo",
+      "name": "DataForSEO Keyword Research",
+      "description": "Real keyword data via DataForSEO API: search volume, CPC, competition, keyword suggestions, SERP analysis, competitor keywords, trending topics.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "keyword": { "type": "string" },
+          "keywords": { "type": "array", "items": { "type": "string" } },
+          "operation": { "type": "string", "enum": ["keyword_research", "full_keyword_analysis", "competitor_analysis", "trending_topics"], "default": "keyword_research" },
+          "location": { "type": "string", "default": "United States" },
+          "competitor_domain": { "type": "string" }
+        }
+      },
+      "is_destructive": false,
+      "required_approval": false,
+      "rollback_supported": false,
+      "observability": { "events": ["research_complete"], "fields": ["keyword", "volume", "cpc", "competition"] },
+      "failure_contract": "Return structured error with missing API credentials guidance if DataForSEO env vars not configured."
+    },
+    {
+      "skill_id": "seo/ahrefs-site-explorer",
+      "suite": "seo",
+      "name": "Ahrefs Site Explorer",
+      "description": "Real SEO data via Ahrefs API: domain rating, organic traffic, backlinks, referring domains, top pages, organic keywords.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "domain": { "type": "string", "description": "Target domain" },
+          "endpoint": { "type": "string", "enum": ["metrics", "backlinks_stats", "domain_rating", "top_pages", "organic_keywords", "overview"], "default": "overview" },
+          "limit": { "type": "integer", "default": 10 }
+        }
+      },
+      "is_destructive": false,
+      "required_approval": false,
+      "rollback_supported": false,
+      "observability": { "events": ["analysis_complete"], "fields": ["domain", "dr", "traffic", "backlinks"] },
+      "failure_contract": "Return structured error with AHREFS_API_TOKEN setup guidance if not configured."
+    },
+    {
+      "skill_id": "seo/ahrefs-keyword-explorer",
+      "suite": "seo",
+      "name": "Ahrefs Keyword Explorer",
+      "description": "Real keyword data via Ahrefs API: search volume, keyword difficulty, CPC, SERP overview, related keywords.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "keyword": { "type": "string" },
+          "country": { "type": "string", "default": "us" }
+        }
+      },
+      "is_destructive": false,
+      "required_approval": false,
+      "rollback_supported": false,
+      "observability": { "events": ["keyword_analyzed"], "fields": ["keyword", "volume", "difficulty", "cpc"] },
+      "failure_contract": "Return structured error with AHREFS_API_TOKEN setup guidance if not configured."
+    },
+    {
+      "skill_id": "ecommerce/amazon-ads-reporter-v2",
+      "suite": "ecommerce",
+      "name": "Amazon Ads Reporter (Python)",
+      "description": "Real Amazon Ads SP/SB/SD campaign and keyword reports via linkfox-amazon-ads-report skill scripts.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "profile_id": { "type": "integer" },
+          "region": { "type": "string", "enum": ["NA", "EU", "FE"], "default": "NA" },
+          "report_type_id": { "type": "string" },
+          "ad_product": { "type": "string", "enum": ["SPONSORED_PRODUCTS", "SPONSORED_BRANDS", "SPONSORED_DISPLAY"] },
+          "group_by": { "type": "array", "items": { "type": "string" } },
+          "columns": { "type": "array", "items": { "type": "string" } },
+          "start_date": { "type": "string" },
+          "end_date": { "type": "string" },
+          "time_unit": { "type": "string", "enum": ["DAILY", "SUMMARY"], "default": "SUMMARY" }
+        }
+      },
+      "is_destructive": false,
+      "required_approval": false,
+      "rollback_supported": false,
+      "observability": { "events": ["report_created", "report_downloaded"], "fields": ["report_id", "ad_product", "latency_ms"] },
+      "failure_contract": "Return structured error with dependency check guidance if linkfox-amazon-ads-auth not installed."
+    },
+    {
+      "skill_id": "ecommerce/amazon-ads-node-reporter",
+      "suite": "ecommerce",
+      "name": "Amazon Ads Node Reporter",
+      "description": "Lightweight Amazon Ads campaign and keyword reports via Node.js scripts. Supports bid inspection and keyword winner/dead analysis.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "operation": { "type": "string", "enum": ["get_bids", "keyword_report"], "default": "get_bids" },
+          "days": { "type": "integer", "default": 7 }
+        }
+      },
+      "is_destructive": false,
+      "required_approval": false,
+      "rollback_supported": false,
+      "observability": { "events": ["report_complete"], "fields": ["operation", "keyword_count"] },
+      "failure_contract": "Return structured error with AMAZON_ADS_PATH env var guidance if not configured."
+    },
+    {
+      "skill_id": "read/web-scraper",
+      "suite": "read",
+      "name": "Web Scraper",
+      "description": "Read any webpage and return clean Markdown content, metadata, links, and images. Uses Jina Reader (free, no API key).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "URL to scrape" },
+          "format": { "type": "string", "enum": ["markdown", "text", "html"], "default": "markdown" },
+          "timeout": { "type": "integer", "default": 30 }
+        }
+      },
+      "is_destructive": false,
+      "required_approval": false,
+      "rollback_supported": false,
+      "observability": { "events": ["page_scraped"], "fields": ["url", "word_count", "links_count"] },
+      "failure_contract": "Return structured error with HTTP status and URL details if scraping fails."
+    },
+    {
+      "skill_id": "read/youtube-transcript",
+      "suite": "read",
+      "name": "YouTube Transcript",
+      "description": "Extract YouTube video transcripts, metadata, and subtitles. Requires yt-dlp installed.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "YouTube video URL" },
+          "lang": { "type": "string", "default": "en", "description": "Subtitle language" }
+        }
+      },
+      "is_destructive": false,
+      "required_approval": false,
+      "rollback_supported": false,
+      "observability": { "events": ["transcript_extracted"], "fields": ["video_id", "title", "duration"] },
+      "failure_contract": "Return structured error with yt-dlp installation guidance if not available."
+    },
+    {
+      "skill_id": "read/rss-feed",
+      "suite": "read",
+      "name": "RSS Feed Reader",
+      "description": "Read and parse RSS/Atom feeds for content monitoring.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "RSS/Atom feed URL" },
+          "limit": { "type": "integer", "default": 20, "description": "Max entries to return" }
+        }
+      },
+      "is_destructive": false,
+      "required_approval": false,
+      "rollback_supported": false,
+      "observability": { "events": ["feed_parsed"], "fields": ["url", "entries_count"] },
+      "failure_contract": "Return structured error with feedparser installation guidance if not available."
+    }
+  ]
+}
