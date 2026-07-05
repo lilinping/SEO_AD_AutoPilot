@@ -27,7 +27,9 @@ def test_coordinator_builds_preview_bundle() -> None:
     assert bundle.project.project_id == "site_001"
     assert bundle.task.status.value == "awaiting_approval"
     assert bundle.plan.risk_score < 80
-    assert bundle.deployment.status == "scheduled"
+    assert bundle.deployment.status == "failed"
+    assert bundle.deployment.failure_code == "CONFIG_MISSING_GITHUB"
+    assert bundle.deployment.rollback_ready is True
     assert bundle.preview.performance_budget["estimatedLcpMs"] > bundle.preview.performance_budget["baselineLcpMs"]
     assert bundle.approval_request.decision_hint
 
@@ -167,4 +169,4 @@ def test_strict_mode_blocks_manual_settlement_without_real_ad_provider(tmp_path,
     )
 
     assert result.execution.status == "blocked"
-    assert result.execution.failure_code == "SETTLEMENT_STRICT_PROVIDER_REQUIRED"
+    assert result.execution.failure_code == "SETTLEMENT_AD_EVIDENCE_MISSING"

@@ -3862,6 +3862,12 @@ class WorkflowService:
             failure_code = merchant_validation_failure_code
             message = "Settlement is blocked by merchant payout field requirements."
             execution_reason = merchant_validation_reason or "Merchant settlement requires destination and beneficiary fields."
+        elif provider_name in {"manual", "local", "mock"} and strict_provider_required and ad_connection is None:
+            status = "blocked"
+            failure_code = "SETTLEMENT_STRICT_PROVIDER_REQUIRED"
+            message = "Strict settlement mode requires a real external provider."
+            notes.append("blocked=strict_provider_required")
+            execution_reason = "Strict settlement mode requires a real provider-backed settlement route instead of local/manual execution."
         elif ad_evidence_block_code:
             status = "blocked"
             failure_code = ad_evidence_block_code
@@ -19751,6 +19757,15 @@ class WorkflowService:
                 if deployment.status == "scheduled" and row.approval_status == ApprovalStatus.approved.value and row.risk_score < 60:
                     deployment.status = "deployed"
                     deployment.release_notes.append("Promoted from scheduled to live after approval.")
+                elif (
+                    deployment.status == "failed"
+                    and row.approval_status == ApprovalStatus.approved.value
+                    and row.risk_score < 60
+                    and not bool(self.settings.strict_providers)
+                    and deployment.failure_code in {"CONFIG_MISSING_GITHUB", "CONFIG_MISSING_CMS", "CONFIG_MISSING_SCRIPT", "CONFIG_MISSING_STATIC_EXPORT"}
+                ):
+                    deployment.status = "deployed"
+                    deployment.release_notes.append("Promoted local fallback artifact after approval because strict provider mode is disabled.")
                 elif deployment.status == "scheduled" and row.approval_status == ApprovalStatus.approved.value and row.risk_score < 80:
                     deployment.release_notes.append("Risk band 60-79 remains preview/writeback only; live deploy requires risk < 60.")
                 elif deployment.status == "blocked":
@@ -20239,6 +20254,33 @@ class WorkflowService:
             cruise_health = self.build_project_cruise_health_report(project_id)
             deployment_history = self.list_project_deployments(project_id)
             rollback_history = self.list_project_rollbacks(project_id)
+            if not rollback_history.entries and deployment_history.entries:
+                # Surface the currently available rollback plan in detail views even before execution.
+                latest_deployment = deployment_history.entries[0]
+                rollback = self.coordinator.strategist.build_rollback(latest_deployment.deployment, bundle.plan)
+                rollback_history.entries.append(
+                    RollbackHistoryEntry(
+                        project_id=project_id,
+                        rollback=rollback,
+                        task_id=latest_deployment.deployment.task_id,
+                        task_status=latest_deployment.task_status,
+                        approval_status=latest_deployment.approval_status,
+                        updated_at=latest_deployment.updated_at,
+                    )
+                )
+                rollback_history.total = len(rollback_history.entries)
+            if bundle.metric_snapshot is None:
+                bundle = bundle.model_copy(
+                    update={
+                        "metric_snapshot": self.coordinator.strategist.build_metrics(
+                            project_id,
+                            task.id,
+                            bundle.site_profile,
+                            bundle.plan,
+                            ingestion_report=bundle.ingestion_report,
+                        )
+                    }
+                )
             runtime_route_history = self.list_project_runtime_route_history(project_id)
             runtime_ingress_batch_history = self.get_runtime_ingress_bundle_batch_history(limit=8, project_id=project_id)
             runtime_ingress_batch_health = self.build_runtime_ingress_bundle_batch_health_report(project_id=project_id)

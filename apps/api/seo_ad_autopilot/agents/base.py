@@ -26,6 +26,10 @@ class AgentRole(str, Enum):
     UX_REVIEWER = "ux_reviewer"
     COORDINATOR = "coordinator"
     MODERATOR = "moderator"
+    POLICY_GUARD = "policy_guard"
+    AIO_OPTIMIZER = "aio_optimizer"
+    RANK_TRACKER = "rank_tracker"
+    COMPETITOR_ANALYST = "competitor_analyst"
 
 
 class DebateStance(str, Enum):
@@ -268,6 +272,46 @@ class DebateEngine:
             participants=[challenger_role],
         )
     
+    def weighted_consensus(
+        self,
+        opinions: list[DebateOpinion],
+        role_weights: Optional[dict[AgentRole, float]] = None,
+    ) -> float:
+        """Weighted consensus: domain-expert roles carry more influence.
+
+        Default weights give extra authority to POLICY_GUARD (hard gate)
+        and STRATEGIST (ROI decisions).  Pass role_weights to override.
+        """
+        if not opinions:
+            return 0.0
+
+        _default: dict[str, float] = {
+            "sniffer": 1.0,
+            "query": 1.2,
+            "strategist": 1.5,
+            "ux_reviewer": 1.0,
+            "policy_guard": 2.0,
+            "aio_optimizer": 1.3,
+        }
+        wmap = (
+            {r.value: w for r, w in role_weights.items()}
+            if role_weights else _default
+        )
+
+        total_w = weighted_score = 0.0
+        for op in opinions:
+            wt = wmap.get(op.agent_role.value, 1.0)
+            total_w += wt
+            if op.stance == DebateStance.AGREE:
+                raw = 1.0
+            elif op.stance == DebateStance.PARTIALLY_AGREE:
+                raw = 0.5
+            else:
+                raw = 0.0
+            weighted_score += wt * raw * op.confidence
+
+        return weighted_score / total_w if total_w else 0.0
+
     def _calculate_consensus(self, opinions: list[DebateOpinion]) -> float:
         """Calculate consensus score from opinions."""
         if not opinions:
@@ -335,6 +379,165 @@ class DebateEngine:
         """Get all debate rounds."""
         return list(self._debates)
     
+
+
+    def run_final_arbitration(
+        self,
+        debate_round: "DebateRound",
+        context: "SiteContext",
+        strategist_role: "AgentRole" = None,
+        policy_guard_role: "AgentRole" = None,
+    ) -> "DebateRound":
+        """AGT-005 — 第3轮辩论：策略方 vs 合规终裁方。
+
+        当前两轮辩论结束后 consensus_score < 0.6，或 resolution 包含 policy 风险时，
+        触发第3轮。Strategist 代表 ROI/效益方，PolicyGuard 代表合规硬门槛方，
+        最终以加权共识（policy_guard weight=2.0）决定是否放行。
+
+        Args:
+            debate_round: 前两轮的 DebateRound 结果（proposal / resolution 作为输入）
+            context:      共享 SiteContext
+            strategist_role:   策略方 AgentRole（默认 STRATEGIST）
+            policy_guard_role: 合规方 AgentRole（默认 POLICY_GUARD）
+
+        Returns:
+            新的 DebateRound，resolution 含 arbitration_verdict 字段
+        """
+        from dataclasses import dataclass
+
+        s_role = strategist_role  or AgentRole.STRATEGIST
+        p_role = policy_guard_role or AgentRole.POLICY_GUARD
+
+        strategist   = self._agents.get(s_role)
+        policy_guard = self._agents.get(p_role)
+
+        # ── 构造第3轮输入提案（从前两轮决议继承）─────────────────────────────
+        arbitration_proposal: dict = {
+            **debate_round.resolution,
+            "_arbitration_round": True,
+            "_prior_consensus":   debate_round.consensus_score,
+            "_prior_confidence":  debate_round.final_confidence,
+            "_arbitration_topic": (
+                f"Should we proceed with: {debate_round.topic}? "
+                f"(Prior consensus: {debate_round.consensus_score:.2f})"
+            ),
+        }
+
+        opinions: list[DebateOpinion] = []
+
+        # ── 策略方发言 ────────────────────────────────────────────────────────
+        if strategist:
+            try:
+                strat_opinion = strategist.offer_opinion(
+                    topic=f"[Round-3 Arbitration] {debate_round.topic}",
+                    proposal=arbitration_proposal,
+                    context=context,
+                    previous_opinions=list(debate_round.opinions),
+                )
+                # 确保是策略方
+                strat_opinion.agent_role = s_role
+                opinions.append(strat_opinion)
+            except Exception as exc:  # noqa: BLE001
+                opinions.append(DebateOpinion(
+                    agent_role=s_role,
+                    stance=DebateStance.PARTIALLY_AGREE,
+                    reasoning=f"Strategist error: {exc}",
+                    confidence=0.5,
+                ))
+
+        # ── 合规终裁方发言（PolicyGuard 作为最终仲裁者）──────────────────────
+        if policy_guard:
+            try:
+                pg_opinion = policy_guard.offer_opinion(
+                    topic=f"[Round-3 Compliance Gate] {debate_round.topic}",
+                    proposal=arbitration_proposal,
+                    context=context,
+                    previous_opinions=list(debate_round.opinions) + opinions,
+                )
+                pg_opinion.agent_role = p_role
+                opinions.append(pg_opinion)
+            except Exception as exc:  # noqa: BLE001
+                opinions.append(DebateOpinion(
+                    agent_role=p_role,
+                    stance=DebateStance.ABSTAIN,
+                    reasoning=f"PolicyGuard error: {exc}",
+                    confidence=0.3,
+                ))
+
+        # ── 加权终裁共识（PolicyGuard weight=2.0，是策略方的2倍）─────────────
+        weighted_score = self.weighted_consensus(
+            opinions,
+            role_weights={
+                s_role: 1.0,
+                p_role: 2.0,   # 合规方拥有否决权权重
+            },
+        )
+
+        # ── 构建终裁决议 ──────────────────────────────────────────────────────
+        policy_opinions = [o for o in opinions if o.agent_role == p_role]
+        policy_blocks = any(
+            o.stance == DebateStance.DISAGREE for o in policy_opinions
+        )
+
+        if policy_blocks:
+            # PolicyGuard 明确否决 → 阻断执行
+            verdict = "BLOCKED"
+            verdict_reason = next(
+                (o.reasoning for o in policy_opinions if o.stance == DebateStance.DISAGREE),
+                "Policy compliance check failed",
+            )
+        elif weighted_score >= 0.6:
+            verdict = "APPROVED"
+            verdict_reason = (
+                f"Weighted arbitration passed (score={weighted_score:.2f}). "
+                "Proceed with recommended conditions."
+            )
+        else:
+            verdict = "CONDITIONAL"
+            verdict_reason = (
+                f"Arbitration inconclusive (score={weighted_score:.2f}). "
+                "Proceed only after manual review."
+            )
+
+        all_conditions = list({
+            c
+            for o in opinions
+            for c in o.conditions
+        })
+
+        arbitration_resolution = {
+            **arbitration_proposal,
+            "arbitration_verdict":       verdict,
+            "arbitration_reason":        verdict_reason,
+            "arbitration_weighted_score": weighted_score,
+            "arbitration_conditions":    all_conditions,
+            "arbitration_policy_blocked": policy_blocks,
+            "_debate_resolution":        True,
+        }
+
+        arb_round = DebateRound(
+            topic=f"[Round-3 Arbitration] {debate_round.topic}",
+            proposer=s_role,
+            proposal=arbitration_proposal,
+            opinions=opinions,
+            resolution=arbitration_resolution,
+            consensus_score=weighted_score,
+            rounds_count=3,
+            final_confidence=self._calculate_final_confidence(opinions),
+        )
+
+        self._debates.append(arb_round)
+        context.debates.append(arb_round)
+        context.debate_history.append({
+            "topic":     arb_round.topic,
+            "rounds":    3,
+            "consensus": weighted_score,
+            "confidence": arb_round.final_confidence,
+            "verdict":   verdict,
+        })
+
+        return arb_round
+
     def get_debate_summary(self) -> dict[str, Any]:
         """Get summary of all debates."""
         return {

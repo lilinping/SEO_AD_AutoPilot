@@ -39,6 +39,7 @@ class SkillRiskLevel(str, Enum):
 @dataclass
 class SkillInput:
     """Skill input parameters."""
+    url: str = ""
     params: dict[str, Any] = field(default_factory=dict)
     context: dict[str, Any] = field(default_factory=dict)
 

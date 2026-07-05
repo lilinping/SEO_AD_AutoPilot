@@ -1,0 +1,59 @@
+# pre-commit 配置 — SEO-AD AutoPilot
+# 安装: pip install pre-commit && pre-commit install
+# 手动运行: pre-commit run --all-files
+# 升级: pre-commit autoupdate
+
+repos:
+  # Ruff: lint + format（替代 flake8 + isort + black）
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.4
+    hooks:
+      - id: ruff
+        name: "🔍 ruff lint"
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+        name: "🎨 ruff format"
+
+  # mypy 静态类型检查
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        name: "📐 mypy"
+        args: [--ignore-missing-imports, --no-error-summary]
+        additional_dependencies: [types-requests, pydantic]
+        files: ^apps/
+
+  # 基础文件检查
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: debug-statements
+      - id: detect-private-key
+
+  # 敏感信息检测
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        name: "🔒 detect secrets"
+        args: [--baseline, .secrets.baseline]
+        exclude: |
+          (?x)^(
+            \.env\.example|tests/.*|\.md$
+          )$
+
+default_language_version:
+  python: python3.11
+
+ci:
+  autofix_commit_msg: "style: auto-fix by pre-commit [skip ci]"
+  autoupdate_schedule: monthly

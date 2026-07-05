@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .base import Agent, AgentOutput, AgentRole, DebateRound, SiteContext
+from .base import Agent, AgentOutput, AgentRole, DebateRound, SiteContext, DebateOpinion, DebateStance
 
 
 class SnifferAgent(Agent):
@@ -81,6 +81,46 @@ class SnifferAgent(Agent):
                 }
         return None
     
+    def offer_opinion(
+        self,
+        topic: str,
+        proposal: dict[str, Any],
+        context: SiteContext,
+        previous_opinions: list[DebateOpinion] = None,
+    ) -> DebateOpinion:
+        """Opine from a site-fingerprint / technical-health perspective."""
+        tech = self._assess_technical_health(context.raw_data or {})
+        score: int = tech.get("score", 70)
+        biz = self._classify_business(self._extract_signals(context.raw_data or {}))
+
+        if score >= 80:
+            return DebateOpinion(
+                agent_role=self._role,
+                stance=DebateStance.AGREE,
+                reasoning="Solid technical foundation — proposal aligns with site profile.",
+                evidence=[f"Technical health: {score}/100", f"Business type: {biz}"],
+                confidence=0.82,
+            )
+        if score >= 60:
+            return DebateOpinion(
+                agent_role=self._role,
+                stance=DebateStance.PARTIALLY_AGREE,
+                reasoning="Moderate technical issues may limit proposal effectiveness.",
+                evidence=[f"Technical health: {score}/100 — improvement needed"],
+                confidence=0.70,
+                conditions=["Resolve Core Web Vitals first",
+                            "Fix crawl errors before content expansion"],
+            )
+        return DebateOpinion(
+            agent_role=self._role,
+            stance=DebateStance.DISAGREE,
+            reasoning="Poor technical health will undermine any SEO/content proposal.",
+            evidence=[f"Technical health: {score}/100 (critical)",
+                      "Remediation must precede optimisation work"],
+            confidence=0.88,
+            conditions=["Achieve technical health >= 60 before proceeding"],
+        )
+
     def _extract_signals(self, raw_data: dict[str, Any]) -> list[str]:
         """Extract business signals from raw data."""
         signals = []

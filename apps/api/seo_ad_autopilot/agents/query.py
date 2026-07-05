@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .base import Agent, AgentOutput, AgentRole, SiteContext
+from .base import Agent, AgentOutput, AgentRole, SiteContext, DebateOpinion, DebateStance
 
 
 class QueryAgent(Agent):
@@ -83,6 +83,50 @@ class QueryAgent(Agent):
         
         return None
     
+    def offer_opinion(
+        self,
+        topic: str,
+        proposal: dict[str, Any],
+        context: SiteContext,
+        previous_opinions: list[DebateOpinion] = None,
+    ) -> DebateOpinion:
+        """Opine from a keyword-opportunity / search-intent perspective."""
+        seo_opps = self._find_seo_opportunities(context)
+        geo_opps = self._find_geo_opportunities(context)
+        total = len(seo_opps) + len(geo_opps)
+        high_val = [o for o in seo_opps if o.get("priority") == "high"]
+        coverage = self._get_platform_coverage()
+        ai_covered = sum(1 for v in coverage.values() if v)
+
+        if total >= 5 and len(high_val) >= 2:
+            return DebateOpinion(
+                agent_role=self._role,
+                stance=DebateStance.AGREE,
+                reasoning=(f"Strong landscape: {len(high_val)} high-priority gaps "
+                           f"across {ai_covered} AI platforms."),
+                evidence=[f"Opportunities: {total} ({len(seo_opps)} SEO, {len(geo_opps)} GEO)",
+                          f"High-priority gaps: {len(high_val)}",
+                          f"AI coverage: {ai_covered}/{len(coverage)}"],
+                confidence=0.85,
+            )
+        if total >= 2:
+            return DebateOpinion(
+                agent_role=self._role,
+                stance=DebateStance.PARTIALLY_AGREE,
+                reasoning="Moderate opportunity set — viable but prioritise quick-wins first.",
+                evidence=[f"Found {total} opportunities; {len(high_val)} high-value"],
+                confidence=0.72,
+                conditions=["Prioritise high-value keyword gaps before broader expansion"],
+            )
+        return DebateOpinion(
+            agent_role=self._role,
+            stance=DebateStance.DISAGREE,
+            reasoning="Insufficient keyword-opportunity data to support the proposal.",
+            evidence=["< 2 opportunities identified", "Search-intent signals too weak"],
+            confidence=0.78,
+            conditions=["Run deeper keyword research before committing to execution"],
+        )
+
     def _find_seo_opportunities(self, context: SiteContext) -> list[dict[str, Any]]:
         """Find traditional SEO opportunities."""
         opportunities = []

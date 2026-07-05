@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .base import Agent, AgentOutput, AgentRole, SiteContext
+from .base import Agent, AgentOutput, AgentRole, SiteContext, DebateOpinion, DebateStance
 
 
 class UXReviewerAgent(Agent):
@@ -85,6 +85,57 @@ class UXReviewerAgent(Agent):
         
         return None
     
+    def offer_opinion(
+        self,
+        topic: str,
+        proposal: dict[str, Any],
+        context: SiteContext,
+        previous_opinions: list[DebateOpinion] = None,
+    ) -> DebateOpinion:
+        """Opine from a UX, conversion, and mobile-experience perspective."""
+        raw = context.raw_data or {}
+        ux = self._analyze_current_ux(raw)
+        mob = self._assess_mobile_experience(raw)
+        ux_score: int = ux.get("overall_score", 60)
+        mob_score: int = mob.get("score", 50)
+        zones = self._identify_exclusion_zones(raw)
+
+        prop_text = str(proposal).lower()
+        touches_zone = any(z.get("element", "").lower() in prop_text for z in zones)
+
+        if touches_zone:
+            return DebateOpinion(
+                agent_role=self._role,
+                stance=DebateStance.DISAGREE,
+                reasoning="Proposal modifies protected conversion elements (CTA / checkout / lead-form).",
+                evidence=[f"Exclusion zones at risk: {[z.get('element') for z in zones]}",
+                          "Changes here require dedicated CRO review"],
+                confidence=0.90,
+                conditions=["Remove changes to exclusion zones",
+                            "Run separate CRO test if needed"],
+            )
+        if ux_score >= 70 and mob_score >= 65:
+            return DebateOpinion(
+                agent_role=self._role,
+                stance=DebateStance.AGREE,
+                reasoning=f"Solid UX ({ux_score}/100) and Mobile ({mob_score}/100) — proposal is safe.",
+                evidence=[f"UX score: {ux_score}/100",
+                          f"Mobile score: {mob_score}/100",
+                          "No exclusion zones impacted"],
+                confidence=0.83,
+            )
+        return DebateOpinion(
+            agent_role=self._role,
+            stance=DebateStance.PARTIALLY_AGREE,
+            reasoning=(f"UX ({ux_score}/100) or Mobile ({mob_score}/100) below threshold — "
+                       "proceed cautiously and monitor conversions."),
+            evidence=[f"UX: {ux_score}/100 (target >= 70)",
+                      f"Mobile: {mob_score}/100 (target >= 65)"],
+            confidence=0.68,
+            conditions=["A/B test before full rollout",
+                        "Monitor bounce rate and conversions daily"],
+        )
+
     def _analyze_current_ux(self, raw_data: dict[str, Any]) -> dict[str, Any]:
         """Analyze current UX of the site."""
         score = 50.0

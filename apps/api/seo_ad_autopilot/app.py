@@ -248,19 +248,32 @@ def create_app(service: Optional[WorkflowService] = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
+
+    from .middleware import SubscriptionQuotaMiddleware
+    app.add_middleware(SubscriptionQuotaMiddleware)
+
     # Include analysis API router
     from .analysis_api import router as analysis_router
     app.include_router(analysis_router)
-    
+
     # Include e-commerce analysis router
     from .routers.ecommerce import router as ecommerce_router
     app.include_router(ecommerce_router)
-    
+
     # Include keyword research router
     from .routers.keywords import router as keywords_router
     app.include_router(keywords_router)
-    
+
+    # Include lightweight operational routers used by health/metrics probes.
+    from .routers.health import router as health_router
+    from .routers.metrics import router as metrics_router
+    app.include_router(health_router)
+    app.include_router(metrics_router)
+
+    @app.get("/health")
+    def root_health() -> dict[str, str]:
+        return {"status": "ok"}
+
     project_path_pattern = re.compile(r"^/api/projects/([^/]+)(?:/.*)?$")
 
     def _normalize_runtime_host(value: Optional[str]) -> Optional[str]:

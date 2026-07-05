@@ -1,275 +1,193 @@
-"""Policy Guard Agent - SEO/广告合规检查.
+"""PolicyGuard Agent - Policy compliance and content safety enforcement.
 
-Inspired by BettaFish's multi-agent collaboration:
-- Rules-based compliance checking
-- Risk assessment
--阻断项和人工复核项输出
+Flags deceptive content, spam signals, thin pages, keyword stuffing,
+and other Google Webmaster Guidelines violations before they ship.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, Optional
 
 from .base import Agent, AgentOutput, AgentRole, DebateOpinion, DebateStance, SiteContext
 
 
-class ComplianceLevel(str, Enum):
-    """合规级别."""
-    PASS = "pass"
-    WARNING = "warning"
-    BLOCK = "block"
-    HUMAN_REVIEW = "human_review"
-
-
-class RiskCategory(str, Enum):
-    """风险类别."""
-    SEO_RISK = "seo_risk"
-    AD_RISK = "ad_risk"
-    CONTENT_RISK = "content_risk"
-    SECURITY_RISK = "security_risk"
-    UX_RISK = "ux_risk"
-
-
-@dataclass
-class ComplianceIssue:
-    """合规问题."""
-    category: RiskCategory
-    level: ComplianceLevel
-    message: str
-    details: str = ""
-    recommendation: str = ""
-
-
-@dataclass
-class PolicyCheckResult:
-    """策略检查结果."""
-    overall_level: ComplianceLevel
-    issues: list[ComplianceIssue] = field(default_factory=list)
-    blocked_items: list[str] = field(default_factory=list)
-    warning_items: list[str] = field(default_factory=list)
-    human_review_items: list[str] = field(default_factory=list)
-    risk_score: float = 0.0
+_DECEPTIVE = [
+    "guaranteed results", "guaranteed ranking", "guaranteed #1",
+    "100% success", "instant traffic", "secret formula",
+    "miracle solution", "never fail", "unlimited clicks",
+    "#1 on google", "buy backlinks", "hidden links",
+    "cloaking", "doorway pages", "link farm",
+]
+_SPAM = [
+    "keyword stuffing", "invisible text", "hidden text",
+    "duplicate content", "scraped content", "auto-generated spam",
+]
 
 
 class PolicyGuardAgent(Agent):
-    """Policy Guard Agent - 审核站点相关性、内容价值、广告政策、安全与隐私.
-    
-    This agent checks:
-    - SEO compliance (no black-hat techniques)
-    - Ad compliance (policy, UX impact)
-    - Content quality (relevance, originality)
-    - Security risks (script injection, data leakage)
+    """PolicyGuard Agent - enforces content policy and ethical-SEO compliance.
+
+    Responsibilities:
+    - Detect deceptive / spammy content patterns
+    - Flag keyword stuffing and thin content
+    - Enforce Google Webmaster Guidelines compliance
+    - Risk-score proposals before execution
     """
-    
+
     def __init__(self):
         super().__init__()
-        self._role = AgentRole.COORDINATOR  # Using coordinator role for now
-    
+        self._role = AgentRole.POLICY_GUARD
+
+    # ── Public interface ─────────────────────────────────────────────────
+
     def analyze(self, context: SiteContext) -> AgentOutput:
-        """Perform policy compliance check."""
-        issues = []
-        
-        # Check SEO compliance
-        seo_issues = self._check_seo_compliance(context)
-        issues.extend(seo_issues)
-        
-        # Check ad compliance
-        ad_issues = self._check_ad_compliance(context)
-        issues.extend(ad_issues)
-        
-        # Check content quality
-        content_issues = self._check_content_quality(context)
-        issues.extend(content_issues)
-        
-        # Check security risks
-        security_issues = self._check_security_risks(context)
-        issues.extend(security_issues)
-        
-        # Calculate overall result
-        result = self._calculate_result(issues)
-        
-        content = {
-            "overall_level": result.overall_level.value,
-            "risk_score": result.risk_score,
-            "issues": [
-                {
-                    "category": issue.category.value,
-                    "level": issue.level.value,
-                    "message": issue.message,
-                    "details": issue.details,
-                    "recommendation": issue.recommendation,
-                }
-                for issue in result.issues
-            ],
-            "blocked_items": result.blocked_items,
-            "warning_items": result.warning_items,
-            "human_review_items": result.human_review_items,
-        }
-        
+        """Audit site context for policy violations."""
+        raw = context.raw_data or {}
+        violations = self._detect_violations(raw)
+        risk = self._risk_level(violations)
+        score = self._compliance_score(violations)
+
         return self._create_output(
-            content=content,
-            confidence=0.85,
-            risk_score=result.risk_score,
-            needs_human_review=result.overall_level == ComplianceLevel.HUMAN_REVIEW,
-            reasoning="Policy compliance check completed",
+            content={
+                "compliance_score": score,
+                "risk_level": risk,
+                "violations": violations,
+                "recommendations": self._recommendations(violations),
+                "policy_summary": self._summary(violations, score),
+            },
+            confidence=0.90,
+            risk_score=round(1.0 - score, 2),
+            needs_human_review=risk in ("high", "critical"),
+            reasoning=f"{len(violations)} violations; risk={risk}; compliance={score:.0%}",
         )
-    
+
     def offer_opinion(
         self,
         topic: str,
         proposal: dict[str, Any],
         context: SiteContext,
-        previous_opinions: list = None,
+        previous_opinions: list[DebateOpinion] = None,
     ) -> DebateOpinion:
-        """Offer opinion on policy-related proposals."""
-        # Check if proposal has compliance issues
-        has_issues = self._has_compliance_issues(proposal)
-        
-        if has_issues:
+        """Vote on a proposal from a policy-compliance perspective."""
+        violations = self._scan_proposal(proposal)
+        critical = [v for v in violations if v["severity"] == "critical"]
+        high = [v for v in violations if v["severity"] == "high"]
+
+        if critical:
             return DebateOpinion(
                 agent_role=self._role,
                 stance=DebateStance.DISAGREE,
-                reasoning="Proposal has compliance issues that need to be addressed",
-                evidence=["Compliance check found violations"],
-                confidence=0.8,
-                conditions=["Fix compliance issues before proceeding"],
+                reasoning=f"Critical violations: {', '.join(v['type'] for v in critical)}",
+                evidence=[v["detail"] for v in critical],
+                confidence=0.95,
+                conditions=["Remove all deceptive / prohibited content before proceeding"],
             )
-        else:
+        if high:
             return DebateOpinion(
                 agent_role=self._role,
-                stance=DebateStance.AGREE,
-                reasoning="Proposal passes compliance checks",
-                evidence=["No compliance violations found"],
-                confidence=0.85,
+                stance=DebateStance.PARTIALLY_AGREE,
+                reasoning=f"High-severity issues: {', '.join(v['type'] for v in high)}",
+                evidence=[v["detail"] for v in high],
+                confidence=0.80,
+                conditions=[f"Fix: {v['type']}" for v in high],
             )
-    
-    def _check_seo_compliance(self, context: SiteContext) -> list[ComplianceIssue]:
-        """Check SEO compliance."""
-        issues = []
-        
-        # Check for black-hat techniques
-        raw_data = context.raw_data
-        content = str(raw_data.get("content", "")).lower()
-        
-        # Check for keyword stuffing
-        if content.count("keyword") > 5:
-            issues.append(ComplianceIssue(
-                category=RiskCategory.SEO_RISK,
-                level=ComplianceLevel.WARNING,
-                message="Potential keyword stuffing detected",
-                recommendation="Reduce keyword density and focus on natural content",
-            ))
-        
-        # Check for hidden text
-        if "display:none" in content or "visibility:hidden" in content:
-            issues.append(ComplianceIssue(
-                category=RiskCategory.SEO_RISK,
-                level=ComplianceLevel.BLOCK,
-                message="Hidden text detected - violates search engine guidelines",
-                recommendation="Remove hidden text elements",
-            ))
-        
-        return issues
-    
-    def _check_ad_compliance(self, context: SiteContext) -> list[ComplianceIssue]:
-        """Check ad compliance."""
-        issues = []
-        
-        # Check for ad density
-        raw_data = context.raw_data
-        ad_count = raw_data.get("ad_count", 0)
-        content_length = len(str(raw_data.get("content", "")))
-        
-        if content_length > 0 and ad_count / (content_length / 1000) > 5:
-            issues.append(ComplianceIssue(
-                category=RiskCategory.AD_RISK,
-                level=ComplianceLevel.WARNING,
-                message="High ad density detected",
-                recommendation="Reduce ad density to improve user experience",
-            ))
-        
-        return issues
-    
-    def _check_content_quality(self, context: SiteContext) -> list[ComplianceIssue]:
-        """Check content quality."""
-        issues = []
-        
-        # Check for thin content
-        raw_data = context.raw_data
-        content_length = len(str(raw_data.get("content", "")))
-        
-        if content_length < 300:
-            issues.append(ComplianceIssue(
-                category=RiskCategory.CONTENT_RISK,
-                level=ComplianceLevel.WARNING,
-                message="Thin content detected",
-                recommendation="Add more valuable content to the page",
-            ))
-        
-        return issues
-    
-    def _check_security_risks(self, context: SiteContext) -> list[ComplianceIssue]:
-        """Check security risks."""
-        issues = []
-        
-        # Check for external scripts
-        raw_data = context.raw_data
-        scripts = raw_data.get("scripts", [])
-        
-        external_scripts = [s for s in scripts if not s.startswith("/")]
-        if len(external_scripts) > 3:
-            issues.append(ComplianceIssue(
-                category=RiskCategory.SECURITY_RISK,
-                level=ComplianceLevel.WARNING,
-                message="Multiple external scripts detected",
-                recommendation="Review and minimize external script dependencies",
-            ))
-        
-        return issues
-    
-    def _has_compliance_issues(self, proposal: dict[str, Any]) -> bool:
-        """Check if proposal has compliance issues."""
-        # Simple check for obvious issues
-        proposal_str = str(proposal).lower()
-        
-        black_hat_terms = ["hidden", "cloaking", "doorway", "spam", "fake"]
-        return any(term in proposal_str for term in black_hat_terms)
-    
-    def _calculate_result(self, issues: list[ComplianceIssue]) -> PolicyCheckResult:
-        """Calculate overall compliance result."""
-        blocked = [i.message for i in issues if i.level == ComplianceLevel.BLOCK]
-        warnings = [i.message for i in issues if i.level == ComplianceLevel.WARNING]
-        human_review = [i.message for i in issues if i.level == ComplianceLevel.HUMAN_REVIEW]
-        
-        # Determine overall level
-        if blocked:
-            overall_level = ComplianceLevel.BLOCK
-        elif human_review:
-            overall_level = ComplianceLevel.HUMAN_REVIEW
-        elif warnings:
-            overall_level = ComplianceLevel.WARNING
-        else:
-            overall_level = ComplianceLevel.PASS
-        
-        # Calculate risk score
-        risk_score = 0.0
-        for issue in issues:
-            if issue.level == ComplianceLevel.BLOCK:
-                risk_score += 30
-            elif issue.level == ComplianceLevel.WARNING:
-                risk_score += 10
-            elif issue.level == ComplianceLevel.HUMAN_REVIEW:
-                risk_score += 20
-        
-        risk_score = min(risk_score, 100)
-        
-        return PolicyCheckResult(
-            overall_level=overall_level,
-            issues=issues,
-            blocked_items=blocked,
-            warning_items=warnings,
-            human_review_items=human_review,
-            risk_score=risk_score,
+        return DebateOpinion(
+            agent_role=self._role,
+            stance=DebateStance.AGREE,
+            reasoning="Proposal appears policy-compliant; no critical violations detected.",
+            evidence=["No deceptive triggers found", "Content volume within acceptable range"],
+            confidence=0.85,
         )
+
+    def challenge(self, other_output: AgentOutput, context: SiteContext) -> Optional[dict[str, Any]]:
+        """Challenge outputs that contain policy-violating recommendations."""
+        content = other_output.content or {}
+        blob = (
+            str(content.get("strategy", "")) + " "
+            + " ".join(str(x) for x in content.get("recommendations", []))
+        ).lower()
+        hits = [t for t in _DECEPTIVE + _SPAM if t in blob]
+        if not hits:
+            return None
+        return {
+            "type": "policy_violation",
+            "challenger": self._role.value,
+            "violated_guidelines": hits,
+            "severity": "high",
+            "recommendation": "Remove / rephrase content violating Google Webmaster Guidelines",
+        }
+
+    # ── Private helpers ──────────────────────────────────────────────────
+
+    def _detect_violations(self, raw: dict[str, Any]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        combined = (str(raw.get("content", "")) + " " + str(raw.get("meta", ""))).lower()
+        words = combined.split()
+        wc = len(words)
+
+        for t in _DECEPTIVE:
+            if t in combined:
+                out.append({"type": "deceptive_content", "severity": "critical",
+                             "detail": f"Deceptive phrase: '{t}'"})
+        for t in _SPAM:
+            if t in combined:
+                out.append({"type": "spam_signal", "severity": "high",
+                             "detail": f"Spam pattern: '{t}'"})
+        if 0 < wc < 300:
+            out.append({"type": "thin_content", "severity": "medium",
+                         "detail": f"Content too thin: {wc} words (min 300)"})
+        for kw in raw.get("target_keywords", []):
+            density = combined.count(kw.lower()) / max(wc, 1)
+            if density > 0.05:
+                out.append({"type": "keyword_stuffing", "severity": "high",
+                             "detail": f"'{kw}' density {density:.1%} > 5% threshold"})
+        return out
+
+    def _scan_proposal(self, proposal: dict[str, Any]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        text = str(proposal).lower()
+        for t in _DECEPTIVE:
+            if t in text:
+                out.append({"type": "deceptive_proposal", "severity": "critical",
+                             "detail": f"Prohibited phrase in proposal: '{t}'"})
+        for t in _SPAM:
+            if t in text:
+                out.append({"type": "spam_proposal", "severity": "high",
+                             "detail": f"Spam technique in proposal: '{t}'"})
+        return out
+
+    def _risk_level(self, violations: list[dict[str, Any]]) -> str:
+        sevs = {v["severity"] for v in violations}
+        for s in ("critical", "high", "medium"):
+            if s in sevs: return s
+        return "low"
+
+    def _compliance_score(self, violations: list[dict[str, Any]]) -> float:
+        penalty = {"critical": 0.30, "high": 0.15, "medium": 0.05}
+        return max(0.0, 1.0 - sum(penalty.get(v["severity"], 0.0) for v in violations))
+
+    def _recommendations(self, violations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        seen: set[str] = set()
+        out: list[dict[str, Any]] = []
+        actions = {
+            "deceptive_content": "Remove / rewrite deceptive claims with accurate, verifiable benefits.",
+            "spam_signal": "Eliminate spam techniques; replace with white-hat alternatives.",
+            "thin_content": "Expand content to >= 600 words with meaningful, user-centric information.",
+            "keyword_stuffing": "Reduce keyword density; aim for <= 2% and natural usage.",
+            "deceptive_proposal": "Revise proposal to remove unsubstantiated guarantees.",
+            "spam_proposal": "Replace black-hat tactics with Google-compliant strategies.",
+        }
+        for v in violations:
+            if v["type"] not in seen:
+                seen.add(v["type"])
+                out.append({"issue": v["type"], "severity": v["severity"],
+                             "action": actions.get(v["type"], "Review per Google Webmaster Guidelines.")})
+        return out
+
+    def _summary(self, violations: list[dict[str, Any]], score: float) -> str:
+        if not violations:
+            return f"Site is policy-compliant. Compliance score: {score:.0%}."
+        c = sum(1 for v in violations if v["severity"] == "critical")
+        h = sum(1 for v in violations if v["severity"] == "high")
+        return (f"Found {len(violations)} violations ({c} critical, {h} high). "
+                f"Compliance score: {score:.0%}. Immediate action required.")
