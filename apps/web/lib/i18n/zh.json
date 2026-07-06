@@ -31,7 +31,8 @@
     "monitor": "监控",
     "settings": "设置",
     "ecommerce": "电商分析",
-    "keywords": "关键词研究"
+    "keywords": "关键词研究",
+    "pricing": "定价计费"
   },
   "ecommerce": {
     "title": "电商分析",

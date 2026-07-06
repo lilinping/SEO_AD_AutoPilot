@@ -38,6 +38,7 @@ function SidebarNav() {
     { href: "/ecommerce", labelKey: "nav.ecommerce" },
     { href: "/keywords", labelKey: "nav.keywords" },
     { href: "/monitor", labelKey: "nav.monitor" },
+    { href: "/pricing", labelKey: "nav.pricing" },
     { href: "/settings", labelKey: "nav.settings" },
   ];
 
