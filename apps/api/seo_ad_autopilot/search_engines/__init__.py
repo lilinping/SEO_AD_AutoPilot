@@ -20,13 +20,13 @@ from .google     import GoogleSearchEngine
 from .bing       import BingSearchEngine
 from .baidu      import BaiduSearchEngine
 from .yandex     import YandexSearchEngine
-from .chatgpt    import ChatGPTSearchEngine
-from .claude     import ClaudeSearchEngine
-from .perplexity import PerplexitySearchEngine
-from .chinese_ai import ChineseAISearchEngine
+from .chatgpt    import ChatGPTGEOEngine as ChatGPTSearchEngine
+from .claude     import ClaudeGEOEngine as ClaudeSearchEngine
+from .perplexity import PerplexityGEOEngine as PerplexitySearchEngine
+from .chinese_ai import DeepSeekGEOEngine as ChineseAISearchEngine
 from .qihoo360   import Qihoo360SearchEngine
 from .sogou      import SogouSearchEngine
-from .latest     import LatestSearchEngine
+from .latest     import DuckDuckGoSearchEngine as LatestSearchEngine
 
 __all__ = [
     # Base classes / models

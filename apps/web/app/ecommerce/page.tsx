@@ -354,3 +354,5 @@ export default function EcommercePage() {
     </div>
   );
 }
+
+export const dynamic = "force-dynamic";

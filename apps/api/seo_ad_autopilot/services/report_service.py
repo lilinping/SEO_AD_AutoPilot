@@ -1,16 +1,27 @@
-"""Report Service — GAP-007: extracted from service.py."""
+"""Report service for assembling lightweight structured reports."""
 from __future__ import annotations
-from typing import Any, Optional
-import time, uuid
+
+import time
+from typing import Any
+
+from ._helpers import service_result
 
 
 class ReportService:
-    """Report service stub — Phase 2 (GAP-007)."""
+    """Build structured report payloads from supplied sections."""
 
     def __init__(self, db=None, cache=None) -> None:
         self._db = db
         self._cache = cache
 
-    # Override in concrete implementations
     async def run(self, **kwargs) -> dict[str, Any]:
-        raise NotImplementedError(f"ReportService.run() not implemented yet")
+        start = time.time()
+        title = kwargs.get("title") or "SEO-AD AutoPilot Report"
+        sections = kwargs.get("sections") or {}
+        result = {
+            "title": title,
+            "sections": sections,
+            "section_count": len(sections),
+            "format": kwargs.get("format", "json"),
+        }
+        return service_result("report", True, result, execution_time_ms=int((time.time() - start) * 1000))

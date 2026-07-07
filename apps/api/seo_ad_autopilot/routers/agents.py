@@ -43,17 +43,18 @@ async def analyze(request: AnalyzeRequest) -> dict[str, Any]:
     start = time.time()
     try:
         coordinator = CoordinatorAgent()
-        result = await coordinator.analyze(
+        result = await coordinator.async_analyze(
             url=request.url,
             agent_filter=request.agent_filter,
             dry_run=request.dry_run,
             locale=request.locale,
+            timeout_sec=request.timeout_sec,
         )
         return {
             "status": "success",
             "url": request.url,
             "elapsed_sec": round(time.time() - start, 2),
-            "result": result,
+            "result": result.to_dict(),
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

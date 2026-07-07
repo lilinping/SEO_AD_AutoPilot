@@ -1,16 +1,26 @@
-"""Ranking Service — GAP-007: extracted from service.py."""
+"""Ranking service facade around rank tracking skills."""
 from __future__ import annotations
-from typing import Any, Optional
-import time, uuid
+
+from typing import Any
+
+from ..skills import RankSnapshotSkill, SERPFeatureTrackerSkill, SkillInput
+from ._helpers import service_result
 
 
 class RankingService:
-    """Ranking service stub — Phase 2 (GAP-007)."""
+    """Create rank snapshots and SERP feature reports."""
 
     def __init__(self, db=None, cache=None) -> None:
         self._db = db
         self._cache = cache
 
-    # Override in concrete implementations
     async def run(self, **kwargs) -> dict[str, Any]:
-        raise NotImplementedError(f"RankingService.run() not implemented yet")
+        action = str(kwargs.pop("action", "snapshot"))
+        context = kwargs.pop("context", {}) or {}
+        skill = SERPFeatureTrackerSkill() if action in {"features", "serp_features"} else RankSnapshotSkill()
+        output = skill.execute(SkillInput(url=kwargs.get("url", ""), params=kwargs, context=context))
+        result = dict(output.result)
+        if output.success and action not in {"features", "serp_features"}:
+            message = result.get("summary", "")
+            result["summary"] = {"tracked_keywords": len(kwargs.get("keywords", [])), "message": message}
+        return service_result("ranking", output.success, result, output.error, output.execution_time_ms)

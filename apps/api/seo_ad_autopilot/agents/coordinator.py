@@ -203,7 +203,11 @@ class CoordinatorAgent(Agent):
                 if role.value.lower() in filter_set
             }
 
-        # ── 3. Run agents in PARALLEL ────────────────────────────────────────
+        # ── 3. Enrich context with upstream research datasets ───────────────
+        research_datasets = await self._collect_research_datasets(context)
+        context.raw_data.update(research_datasets)
+
+        # ── 4. Run independent discovery agents in PARALLEL ────────────────
         agent_outputs: dict[str, AgentOutput] = {}
         if registry:
             async def _run_one(role: AgentRole, agent: Agent) -> tuple[str, AgentOutput]:
@@ -218,19 +222,32 @@ class CoordinatorAgent(Agent):
                 except Exception as exc:  # noqa: BLE001
                     return role.value, self._error_output(role, str(exc))
 
-            pairs = await asyncio.gather(
-                *[_run_one(role, agent) for role, agent in registry.items()]
-            )
-            agent_outputs = dict(pairs)
+            dependent_roles = {AgentRole.STRATEGIST}
+            discovery_registry = {
+                role: agent for role, agent in registry.items() if role not in dependent_roles
+            }
+            if discovery_registry:
+                pairs = await asyncio.gather(
+                    *[_run_one(role, agent) for role, agent in discovery_registry.items()]
+                )
+                agent_outputs.update(dict(pairs))
 
-            # Write outputs back into context for debate engine
-            context.site_profile   = agent_outputs.get("sniffer", AgentOutput(AgentRole.SNIFFER, {})).content
-            context.geo_analysis   = agent_outputs.get("geo",     AgentOutput(AgentRole.GEO, {})).content
-            context.ad_analysis    = agent_outputs.get("aio_optimizer", AgentOutput(AgentRole.AIO_OPTIMIZER, {})).content
-            context.opportunities  = (
-                agent_outputs.get("strategist", AgentOutput(AgentRole.STRATEGIST, {}))
+            # Write discovery outputs back into context before dependent agents run.
+            context.site_profile = agent_outputs.get("sniffer", AgentOutput(AgentRole.SNIFFER, {})).content
+            context.geo_analysis = agent_outputs.get("geo", AgentOutput(AgentRole.GEO, {})).content
+            context.ad_analysis = agent_outputs.get("aio_optimizer", AgentOutput(AgentRole.AIO_OPTIMIZER, {})).content
+            context.opportunities = (
+                agent_outputs.get("query", AgentOutput(AgentRole.QUERY, {}))
                 .content.get("opportunities", [])
             )
+
+            if AgentRole.STRATEGIST in registry:
+                role, output = await _run_one(AgentRole.STRATEGIST, registry[AgentRole.STRATEGIST])
+                agent_outputs[role] = output
+                context.opportunities = (
+                    output.content.get("strategies")
+                    or context.opportunities
+                )
 
         # ── 4. Run debates ───────────────────────────────────────────────────
         debates: list[DebateRound] = []
@@ -280,6 +297,127 @@ class CoordinatorAgent(Agent):
         )
 
     # ── Agent call helper ─────────────────────────────────────────────────────
+
+    async def _collect_research_datasets(self, context: SiteContext) -> dict[str, Any]:
+        """Collect optional upstream datasets before agents inspect context."""
+        raw = context.raw_data or {}
+        datasets: dict[str, Any] = {}
+
+        missing_keywords = "keyword_research" not in raw
+        missing_trends = "trending_topics" not in raw
+        missing_competitors = "competitor_data" not in raw
+        if not any([missing_keywords, missing_trends, missing_competitors]):
+            return datasets
+
+        dataforseo = await self._run_dataforseo_collection(context)
+        if missing_keywords and dataforseo.get("keyword_research"):
+            datasets["keyword_research"] = dataforseo["keyword_research"]
+        if missing_trends and dataforseo.get("trending_topics"):
+            datasets["trending_topics"] = dataforseo["trending_topics"]
+        if missing_competitors and dataforseo.get("competitor_data"):
+            datasets["competitor_data"] = dataforseo["competitor_data"]
+
+        return datasets
+
+    async def _run_dataforseo_collection(self, context: SiteContext) -> dict[str, Any]:
+        """Best-effort DataForSEO collection; unavailable credentials stay non-fatal."""
+        keyword = self._seed_keyword(context)
+        if not keyword:
+            return {}
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._run_dataforseo_collection_sync, context, keyword)
+
+    def _run_dataforseo_collection_sync(self, context: SiteContext, keyword: str) -> dict[str, Any]:
+        try:
+            from ..skills.base import SkillInput
+            from ..skills.real_data import DataForKeywordResearchSkill
+        except Exception:
+            return {}
+
+        skill = DataForKeywordResearchSkill()
+        datasets: dict[str, Any] = {}
+
+        keyword_output = skill.execute(SkillInput(
+            url=context.url,
+            params={"keyword": keyword, "operation": "keyword_research"},
+            context=context.raw_data,
+        ))
+        keyword_data = self._extract_skill_data(keyword_output)
+        keyword_research = self._normalize_keyword_research(keyword_data)
+        if keyword_research.get("keywords"):
+            datasets["keyword_research"] = keyword_research
+
+        trends_output = skill.execute(SkillInput(
+            url=context.url,
+            params={"keyword": keyword, "operation": "trending_topics"},
+            context=context.raw_data,
+        ))
+        trend_data = self._extract_skill_data(trends_output)
+        trends = self._normalize_trending_topics(trend_data)
+        if trends:
+            datasets["trending_topics"] = trends
+
+        competitor_data = self._normalize_competitor_data(keyword_data)
+        if competitor_data:
+            datasets["competitor_data"] = competitor_data
+
+        return datasets
+
+    @staticmethod
+    def _extract_skill_data(output: Any) -> Any:
+        if not getattr(output, "success", False):
+            return {}
+        result = getattr(output, "result", {}) or {}
+        if isinstance(result, dict) and "data" in result:
+            return result.get("data") or {}
+        return result
+
+    @staticmethod
+    def _normalize_keyword_research(data: Any) -> dict[str, Any]:
+        if not isinstance(data, dict):
+            return {}
+        candidates = data.get("keywords") or data.get("keyword_suggestions") or data.get("items") or data.get("data")
+        if isinstance(candidates, dict):
+            candidates = candidates.get("keywords") or candidates.get("items")
+        keywords = [item for item in (candidates or []) if isinstance(item, dict)]
+        return {"keywords": keywords, "source": "dataforseo"} if keywords else {}
+
+    @staticmethod
+    def _normalize_trending_topics(data: Any) -> list[dict[str, Any]]:
+        if isinstance(data, dict):
+            data = data.get("topics") or data.get("trending_topics") or data.get("items") or data.get("data")
+        if not isinstance(data, list):
+            return []
+        return [dict(item, source=item.get("source", "dataforseo")) for item in data if isinstance(item, dict)]
+
+    @staticmethod
+    def _normalize_competitor_data(data: Any) -> dict[str, Any]:
+        if not isinstance(data, dict):
+            return {}
+        competitors = data.get("competitors") or data.get("competitor_data") or {}
+        if isinstance(competitors, dict):
+            return competitors
+        if not isinstance(competitors, list):
+            return {}
+        normalized: dict[str, Any] = {}
+        for item in competitors:
+            if not isinstance(item, dict):
+                continue
+            domain = item.get("domain") or item.get("url")
+            if domain:
+                normalized[str(domain)] = item
+        return normalized
+
+    @staticmethod
+    def _seed_keyword(context: SiteContext) -> str:
+        raw = context.raw_data or {}
+        for key in ("primary_keyword", "keyword", "title"):
+            value = str(raw.get(key) or "").strip()
+            if value:
+                return value[:120]
+        content = str(raw.get("content") or "").strip()
+        return " ".join(content.split()[:4])[:120]
 
     @staticmethod
     async def _call_agent(agent: Agent, context: SiteContext) -> AgentOutput:

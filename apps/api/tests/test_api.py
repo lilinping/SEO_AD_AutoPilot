@@ -731,3 +731,15 @@ def test_prompt_registry_write_and_activate(isolated_service) -> None:
         assert all(item.get("projectId") == project_id for item in project_entries)
         worker_invalid_status = client.get("/api/worker/executions", params={"status": "invalid"})
         assert worker_invalid_status.status_code == 422
+
+
+def test_analyze_endpoint_normalizes_bare_domains(isolated_service) -> None:
+    app = create_app(isolated_service)
+    with TestClient(app) as client:
+        response = client.post("/api/analyze", json={"url": "example.com"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["url"] == "https://example.com"
+    assert payload["crawl_status"] in {"success", "error"}
+    assert payload["pipeline"]

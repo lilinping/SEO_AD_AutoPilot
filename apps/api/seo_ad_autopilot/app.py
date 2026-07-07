@@ -252,22 +252,17 @@ def create_app(service: Optional[WorkflowService] = None) -> FastAPI:
     from .middleware import SubscriptionQuotaMiddleware
     app.add_middleware(SubscriptionQuotaMiddleware)
 
-    # Include analysis API router
-    from .analysis_api import router as analysis_router
-    app.include_router(analysis_router)
+    # Include detailed /api/analyze pipeline router used by the Analyze page.
+    from .analysis_api import router as analysis_pipeline_router
+    app.include_router(analysis_pipeline_router)
 
-    # Include e-commerce analysis router
-    from .routers.ecommerce import router as ecommerce_router
-    app.include_router(ecommerce_router)
+    # Include modular domain routers from apps/api/seo_ad_autopilot/routers.
+    from .routers import all_routers
+    for router in all_routers:
+        app.include_router(router)
 
-    # Include keyword research router
-    from .routers.keywords import router as keywords_router
-    app.include_router(keywords_router)
-
-    # Include lightweight operational routers used by health/metrics probes.
-    from .routers.health import router as health_router
+    # Include lightweight metrics probes.
     from .routers.metrics import router as metrics_router
-    app.include_router(health_router)
     app.include_router(metrics_router)
 
     @app.get("/health")

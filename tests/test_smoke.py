@@ -101,6 +101,58 @@ class TestRouters:
         for name in ["health", "agents", "analysis", "content", "ad_platforms", "rank_tracking"]:
             assert name in src, f"router '{name}' not imported in routers/__init__.py"
 
+    def test_create_app_registers_domain_routers(self):
+        from apps.api.seo_ad_autopilot.app import create_app
+
+        route_paths = {getattr(route, "path", "") for route in create_app().routes}
+        for path in [
+            "/api/agents/list",
+            "/api/analysis/site",
+            "/api/content/generate",
+            "/api/ads/platforms",
+            "/api/rank/snapshot",
+            "/api/competitor/analyze",
+            "/api/search/engines",
+        ]:
+            assert path in route_paths
+
+    def test_agent_router_analyze_uses_async_entrypoint(self):
+        src = (API_ROOT / "seo_ad_autopilot" / "routers" / "agents.py").read_text()
+        assert "await coordinator.async_analyze" in src
+
+
+# ── GAP-007: extracted service modules are usable ────────────────────────────
+
+class TestExtractedServices:
+    @pytest.mark.asyncio
+    async def test_service_run_methods_return_actionable_results(self):
+        from apps.api.seo_ad_autopilot.services import (
+            AdService,
+            CompetitorService,
+            ContentService,
+            CrawlService,
+            NotificationService,
+            RankingService,
+            ReportService,
+        )
+
+        cases = [
+            (CrawlService(), {"url": "https://example.com"}, "crawl"),
+            (ContentService(), {"topic": "SEO checklist", "content_type": "faq"}, "content"),
+            (AdService(), {"url": "https://example.com", "site_data": {"monthly_visits": 12000}}, "ad"),
+            (CompetitorService(), {"url": "https://example.com", "competitors": ["https://competitor.example"]}, "competitor"),
+            (RankingService(), {"url": "https://example.com", "keywords": ["seo tool"]}, "ranking"),
+            (ReportService(), {"url": "https://example.com", "analysis_data": {"recommendations": []}}, "report"),
+            (NotificationService(), {"title": "Smoke", "message": "Service check"}, "notification"),
+        ]
+
+        for service, kwargs, expected_type in cases:
+            result = await service.run(**kwargs)
+            assert result["status"] == "complete"
+            assert result["service"] == expected_type
+            assert "task_id" in result
+
+
 
 # ── GAP-004: auto_discovery platform registration ────────────────────────────
 

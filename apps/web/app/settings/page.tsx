@@ -1,14 +1,88 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useI18n } from "@/lib/i18n";
 
 type Tab = "setup" | "search" | "social" | "ads" | "skills" | "general";
+
+interface SettingsData {
+  autoDeploy: boolean;
+  approvalThreshold: number;
+  blockThreshold: number;
+  monitorWindow: number;
+  rollbackWindow: number;
+  autoCruise: boolean;
+  strictProviders: boolean;
+  apiKey: string;
+  databaseUrl: string;
+  redisUrl: string;
+}
 
 export default function SettingsPage() {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<Tab>("setup");
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
+
+  // Dynamic state for general configurations and environment variables
+  const [settings, setSettings] = useState<SettingsData>({
+    autoDeploy: false,
+    approvalThreshold: 60,
+    blockThreshold: 80,
+    monitorWindow: 90,
+    rollbackWindow: 5,
+    autoCruise: false,
+    strictProviders: false,
+    apiKey: "",
+    databaseUrl: "sqlite:///./var/seo-ad-autopilot.db",
+    redisUrl: "redis://localhost:6379/0",
+  });
+
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const API_BASE = process.env.NEXT_PUBLIC_AUTOPILOT_API_URL ?? "http://127.0.0.1:8000/api";
+
+  // Fetch settings from API
+  useEffect(() => {
+    async function fetchSettings() {
+      setLoading(true);
+      try {
+        const res = await fetch(`${API_BASE}/settings`);
+        if (res.ok) {
+          const data = await res.json();
+          setSettings((prev) => ({ ...prev, ...data }));
+        }
+      } catch (err) {
+        console.error("Failed to fetch settings:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchSettings();
+  }, [API_BASE]);
+
+  // Handle Save
+  const handleSave = async () => {
+    setSaving(true);
+    setMessage(null);
+    try {
+      const res = await fetch(`${API_BASE}/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+      });
+      if (res.ok) {
+        setMessage({ type: "success", text: "设置保存成功！" });
+      } else {
+        throw new Error("HTTP " + res.status);
+      }
+    } catch (err) {
+      setMessage({ type: "error", text: "保存设置失败，请检查后端连接。" });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const toggleSection = (section: string) => {
     setExpandedSection(expandedSection === section ? null : section);
@@ -390,47 +464,81 @@ export default function SettingsPage() {
               <div className="eyebrow">通用配置</div>
               <h2>系统设置</h2>
             </div>
-          </div>
-          <div className="settings-grid">
-            {[
-              { label: "Auto Deploy", type: "checkbox", default: false },
-              { label: "Approval Threshold", type: "number", default: 60 },
-              { label: "Block Threshold", type: "number", default: 80 },
-              { label: "Monitor Window (min)", type: "number", default: 90 },
-              { label: "Rollback Window (min)", type: "number", default: 5 },
-              { label: "Auto Cruise", type: "checkbox", default: false },
-              { label: "Strict Providers", type: "checkbox", default: false },
-            ].map((setting) => (
-              <div className="setting-item" key={setting.label}>
-                <label className="setting-label">{setting.label}</label>
-                <div className="setting-control">
-                  {setting.type === "checkbox" ? (
-                    <input type="checkbox" defaultChecked={setting.default as boolean} />
-                  ) : (
-                    <input type="number" defaultValue={setting.default as number} min="0" />
-                  )}
-                </div>
-              </div>
-            ))}
+            <button
+              className="btn accent"
+              onClick={handleSave}
+              disabled={saving || loading}
+            >
+              {saving ? "正在保存..." : "保存设置"}
+            </button>
           </div>
 
-          <div style={{ marginTop: 20 }}>
-            <h3 style={{ marginBottom: 12 }}>环境变量配置</h3>
-            <div className="settings-grid">
-              {[
-                { label: "API Key", env: "SEO_AD_BOT_API_KEY", type: "password" },
-                { label: "Database URL", env: "DATABASE_URL", type: "text", default: "sqlite:///./var/seo-ad-autopilot.db" },
-                { label: "Redis URL", env: "REDIS_URL", type: "text", default: "redis://localhost:6379/0" },
-              ].map((setting) => (
-                <div className="setting-item" key={setting.env}>
-                  <label className="setting-label">{setting.label}</label>
-                  <div className="setting-control">
-                    <input type={setting.type} defaultValue={setting.default || ""} placeholder={setting.env} />
-                  </div>
-                </div>
-              ))}
+          {message && (
+            <div className={`banner ${message.type}`} style={{ marginBottom: 20, padding: 12, borderRadius: 6 }}>
+              {message.text}
             </div>
-          </div>
+          )}
+
+          {loading ? (
+            <p>正在加载系统配置...</p>
+          ) : (
+            <>
+              <div className="settings-grid">
+                {[
+                  { key: "autoDeploy", label: "Auto Deploy", type: "checkbox" },
+                  { key: "approvalThreshold", label: "Approval Threshold", type: "number" },
+                  { key: "blockThreshold", label: "Block Threshold", type: "number" },
+                  { key: "monitorWindow", label: "Monitor Window (min)", type: "number" },
+                  { key: "rollbackWindow", label: "Rollback Window (min)", type: "number" },
+                  { key: "autoCruise", label: "Auto Cruise", type: "checkbox" },
+                  { key: "strictProviders", label: "Strict Providers", type: "checkbox" },
+                ].map((setting) => (
+                  <div className="setting-item" key={setting.key}>
+                    <label className="setting-label">{setting.label}</label>
+                    <div className="setting-control">
+                      {setting.type === "checkbox" ? (
+                        <input
+                          type="checkbox"
+                          checked={!!settings[setting.key as keyof SettingsData]}
+                          onChange={(e) => setSettings({ ...settings, [setting.key]: e.target.checked })}
+                        />
+                      ) : (
+                        <input
+                          type="number"
+                          value={Number(settings[setting.key as keyof SettingsData] ?? 0)}
+                          min="0"
+                          onChange={(e) => setSettings({ ...settings, [setting.key]: parseInt(e.target.value) || 0 })}
+                        />
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ marginTop: 20 }}>
+                <h3 style={{ marginBottom: 12 }}>环境变量配置</h3>
+                <div className="settings-grid">
+                  {[
+                    { key: "apiKey", label: "API Key", env: "SEO_AD_BOT_API_KEY", type: "password" },
+                    { key: "databaseUrl", label: "Database URL", env: "DATABASE_URL", type: "text" },
+                    { key: "redisUrl", label: "Redis URL", env: "REDIS_URL", type: "text" },
+                  ].map((setting) => (
+                    <div className="setting-item" key={setting.key}>
+                      <label className="setting-label">{setting.label}</label>
+                      <div className="setting-control">
+                        <input
+                          type={setting.type}
+                          value={String(settings[setting.key as keyof SettingsData] ?? "")}
+                          placeholder={setting.env}
+                          onChange={(e) => setSettings({ ...settings, [setting.key]: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </section>
       )}
     </div>

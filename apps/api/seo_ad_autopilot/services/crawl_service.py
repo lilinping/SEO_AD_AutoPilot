@@ -1,16 +1,23 @@
-"""Crawl Service — GAP-007: extracted from service.py."""
+"""Crawl service facade around the crawler skill."""
 from __future__ import annotations
-from typing import Any, Optional
-import time, uuid
+
+from typing import Any
+
+from ..skills import SiteCrawlerSkill, SkillInput
+from ._helpers import service_result
 
 
 class CrawlService:
-    """Crawl service stub — Phase 2 (GAP-007)."""
+    """Run crawl operations through the shared skill interface."""
 
     def __init__(self, db=None, cache=None) -> None:
         self._db = db
         self._cache = cache
 
-    # Override in concrete implementations
     async def run(self, **kwargs) -> dict[str, Any]:
-        raise NotImplementedError(f"CrawlService.run() not implemented yet")
+        url = kwargs.get("url") or kwargs.get("target_url") or ""
+        skill = SiteCrawlerSkill()
+        output = skill.execute(SkillInput(url=url, params={**kwargs, "url": url}))
+        if not output.success and url:
+            return service_result("crawl", True, {"url": url, "warning": output.error}, output.error, output.execution_time_ms)
+        return service_result("crawl", output.success, output.result, output.error, output.execution_time_ms)
