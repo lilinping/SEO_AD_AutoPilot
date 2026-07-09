@@ -10,6 +10,8 @@
 
 SEO-AD AutoPilot is an open-source platform that automates the full SEO-AD lifecycle: site crawling, diagnostics, content strategy, ad safety auditing, technical SEO patching, and controlled deployment with rollback capabilities.
 
+中文说明文档：[`docs/功能完善与验收说明.md`](docs/功能完善与验收说明.md) 记录了当前功能完善范围、成熟产品对标结论、验收 gate、Provider 证据缺口、视觉农场生产化缺口和后续优先级。
+
 **Key principles:**
 - 🛡️ **White-hat first** — preview before execute, explain every action
 - 🔍 **Transparent** — full audit trail, structured approval gates
