@@ -1916,6 +1916,12 @@ export interface ConnectorProviderCoverageItem {
   primaryBlockingReason?: string | null;
   suggestedActionPath?: string | null;
   suggestedActionLabel?: string | null;
+  evidenceGapType?: "missing_real" | "fallback_only" | "strict_gap" | "blocking" | "stale_or_unknown" | "none" | null;
+  evidenceGapSummary?: string | null;
+  smokeAction?: string | null;
+  smokeActionPath?: string | null;
+  smokeActionLabel?: string | null;
+  acceptanceGateId?: string | null;
   realConnectionCount: number;
   fallbackConnectionCount: number;
   unconfiguredConnectionCount: number;
@@ -2421,6 +2427,15 @@ export interface ProductBenchmarkReference {
   observedCapabilities: string[];
 }
 
+export interface CapabilityWorkflowStage {
+  stageId: "intake" | "evidence" | "execution" | "verification" | "automation";
+  title: string;
+  status: "production_ready" | "operational" | "partial" | "missing";
+  score: number;
+  evidence: string[];
+  gaps: string[];
+}
+
 export interface ProductCapabilityBenchmark {
   capabilityId: string;
   title: string;
@@ -2431,6 +2446,9 @@ export interface ProductCapabilityBenchmark {
   remainingGaps: string[];
   nextActions: string[];
   priority: "p0" | "p1" | "p2" | "p3";
+  workflowStages: CapabilityWorkflowStage[];
+  weakestStageId?: string | null;
+  weakestStageTitle?: string | null;
 }
 
 export interface ProductBenchmarkReport {
@@ -2460,6 +2478,8 @@ export interface RemainingTaskItem {
   nextAction?: string | null;
   quickActionPath?: string | null;
   quickActionLabel?: string | null;
+  weakestStageId?: string | null;
+  weakestStageTitle?: string | null;
 }
 
 export interface RemainingTaskReport {
@@ -2668,6 +2688,12 @@ export interface VisualFarmStatusReport {
   probeFresh: boolean;
   probeStale: boolean;
   strictPublishReady: boolean;
+  readinessGapType?: "missing_endpoint" | "missing_token" | "missing_probe" | "stale_probe" | "blocking_probe" | "run_failures" | "strict_not_enabled" | "none" | null;
+  readinessGapSummary?: string | null;
+  remediationAction?: string | null;
+  remediationActionPath?: string | null;
+  remediationActionLabel?: string | null;
+  acceptanceGateId?: string | null;
   failureBuckets: VisualRegressionFailureBucket[];
   notes: string[];
 }

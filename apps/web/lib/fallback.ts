@@ -891,6 +891,12 @@ export function fallbackWorkspaceConnectorsHealthReport(): WorkspaceConnectorsHe
         primaryBlockingReason: null,
         suggestedActionPath: "/monitor",
         suggestedActionLabel: "Open monitor",
+        evidenceGapType: null,
+        evidenceGapSummary: null,
+        smokeAction: null,
+        smokeActionPath: null,
+        smokeActionLabel: null,
+        acceptanceGateId: null,
         realConnectionCount: 0,
         fallbackConnectionCount: 0,
         unconfiguredConnectionCount: 0,
@@ -1018,8 +1024,29 @@ export function fallbackWorkspaceConnectorsHealthReport(): WorkspaceConnectorsHe
       .filter((item) => item.totalConnectionCount > 0 && item.strictEligibleCount === item.totalConnectionCount)
       .map((item) => item.provider),
     providerCoverage: Array.from(providerMap.values())
-      .map((item) => ({
-        ...item,
+      .map((item) => {
+        const evidenceGapType = (item.realConnectionCount === 0
+          ? item.fallbackConnectionCount > 0
+            ? "fallback_only"
+            : "missing_real"
+          : item.strictEligibleCount < item.totalConnectionCount
+            ? "strict_gap"
+            : item.blockingProjectCount > 0
+              ? "blocking"
+              : "none") as ConnectorProviderCoverageItem["evidenceGapType"];
+        return {
+          ...item,
+          evidenceGapType,
+          evidenceGapSummary:
+            item.realConnectionCount === 0
+              ? `${item.provider} lacks real provider evidence.`
+              : item.strictEligibleCount < item.totalConnectionCount
+                ? `${item.provider} has strict-ready evidence gaps.`
+                : `${item.provider} provider evidence is available.`,
+          smokeAction: `Run ${item.provider} provider smoke and refresh evidence freshness.`,
+          smokeActionPath: `/monitor?focus=provider-smoke&provider=${item.provider}`,
+          smokeActionLabel: item.realConnectionCount === 0 ? "Run provider smoke" : "View smoke status",
+          acceptanceGateId: item.provider === "ad_network" ? "mvp_ad_recommendations" : "real_provider_samples",
         strictReadyProjectRatePercent: item.affectedProjectCount
           ? Number(((item.strictReadyProjectCount / item.affectedProjectCount) * 100).toFixed(1))
           : 0,
@@ -1028,8 +1055,9 @@ export function fallbackWorkspaceConnectorsHealthReport(): WorkspaceConnectorsHe
           : 0,
         realCoveragePercent: item.totalConnectionCount ? Number(((item.realConnectionCount / item.totalConnectionCount) * 100).toFixed(1)) : 0,
         strictCoveragePercent: item.totalConnectionCount ? Number(((item.strictEligibleCount / item.totalConnectionCount) * 100).toFixed(1)) : 0,
-        blockingRatePercent: item.affectedProjectCount ? Number(((item.blockingProjectCount / item.affectedProjectCount) * 100).toFixed(1)) : 0,
-      }))
+          blockingRatePercent: item.affectedProjectCount ? Number(((item.blockingProjectCount / item.affectedProjectCount) * 100).toFixed(1)) : 0,
+        };
+      })
       .sort((a, b) => a.provider.localeCompare(b.provider)),
     topBlockingProviders: Array.from(providerMap.values())
       .sort((a, b) => b.blockingProjectCount - a.blockingProjectCount || b.unconfiguredConnectionCount - a.unconfiguredConnectionCount || a.provider.localeCompare(b.provider))
@@ -2698,6 +2726,54 @@ export function fallbackAcceptanceReport(): AcceptanceReport {
 
 export function fallbackProductBenchmarkReport(): ProductBenchmarkReport {
   const now = new Date().toISOString();
+  const fallbackWorkflowStages = [
+    {
+      stageId: "intake" as const,
+      title: "配置接入",
+      status: "partial" as const,
+      score: 35,
+      evidence: ["Fallback report: API unavailable"],
+      gaps: ["需要通过后端 benchmark 获取真实流程阶段。"],
+    },
+    {
+      stageId: "evidence" as const,
+      title: "真实证据",
+      status: "partial" as const,
+      score: 35,
+      evidence: ["Fallback report: evidence unavailable"],
+      gaps: ["真实 provider evidence 暂不可用。"],
+    },
+    {
+      stageId: "execution" as const,
+      title: "执行闭环",
+      status: "partial" as const,
+      score: 35,
+      evidence: ["Fallback report: execution unavailable"],
+      gaps: ["执行链路状态暂不可用。"],
+    },
+    {
+      stageId: "verification" as const,
+      title: "验收校验",
+      status: "partial" as const,
+      score: 35,
+      evidence: ["Fallback report: verification unavailable"],
+      gaps: ["验收 gate 状态暂不可用。"],
+    },
+    {
+      stageId: "automation" as const,
+      title: "自动化巡航",
+      status: "partial" as const,
+      score: 35,
+      evidence: ["Fallback report: automation unavailable"],
+      gaps: ["自动化巡航状态暂不可用。"],
+    },
+  ];
+  const withWorkflow = <T extends { maturityScore: number }>(capability: T) => ({
+    ...capability,
+    workflowStages: fallbackWorkflowStages,
+    weakestStageId: "intake",
+    weakestStageTitle: "配置接入",
+  });
   return {
     generatedAt: now,
     projectId: null,
@@ -2752,7 +2828,7 @@ export function fallbackProductBenchmarkReport(): ProductBenchmarkReport {
       },
     ],
     capabilities: [
-      {
+      withWorkflow({
         capabilityId: "real_provider_ingestion_writeback",
         title: "真实外部数据源与写回链路",
         currentStatus: "partial",
@@ -2762,8 +2838,8 @@ export function fallbackProductBenchmarkReport(): ProductBenchmarkReport {
         remainingGaps: ["扩大真实 provider 生产样本。", "strictProviders=true 下禁止 fallback 冒充成功。"],
         nextActions: ["补生产连接 smoke。", "把 provider freshness 纳入发布验收。"],
         priority: "p0",
-      },
-      {
+      }),
+      withWorkflow({
         capabilityId: "visual_farm_production",
         title: "视觉回归与截图农场生产化",
         currentStatus: "partial",
@@ -2773,8 +2849,8 @@ export function fallbackProductBenchmarkReport(): ProductBenchmarkReport {
         remainingGaps: ["截图农场生产端点和部署闭环仍需收口。"],
         nextActions: ["补截图 provider production smoke。"],
         priority: "p0",
-      },
-      {
+      }),
+      withWorkflow({
         capabilityId: "runtime_edge_multisite",
         title: "边缘流量、rewrite / reverse proxy 与多站点编排",
         currentStatus: "partial",
@@ -2784,8 +2860,8 @@ export function fallbackProductBenchmarkReport(): ProductBenchmarkReport {
         remainingGaps: ["真实站点流量接入和多站点生产编排仍需验证。"],
         nextActions: ["补 runtime-edge production smoke。"],
         priority: "p1",
-      },
-      {
+      }),
+      withWorkflow({
         capabilityId: "ad_revenue_reporting",
         title: "广告平台接入与收益回传",
         currentStatus: "partial",
@@ -2795,8 +2871,8 @@ export function fallbackProductBenchmarkReport(): ProductBenchmarkReport {
         remainingGaps: ["真实广告平台 reporting API 样本仍需扩展。"],
         nextActions: ["补 GAM / AdSense 风格 reporting smoke。"],
         priority: "p1",
-      },
-      {
+      }),
+      withWorkflow({
         capabilityId: "merchant_settlement",
         title: "商户结算 SDK / 网关",
         currentStatus: "partial",
@@ -2806,8 +2882,8 @@ export function fallbackProductBenchmarkReport(): ProductBenchmarkReport {
         remainingGaps: ["正式支付 SDK 和商户结算状态机仍需深化。"],
         nextActions: ["补 Stripe Connect / payout provider contract。"],
         priority: "p1",
-      },
-      {
+      }),
+      withWorkflow({
         capabilityId: "experimentation_runtime_governance",
         title: "深度运行时 A/B 分流和灰度治理",
         currentStatus: "partial",
@@ -2817,7 +2893,7 @@ export function fallbackProductBenchmarkReport(): ProductBenchmarkReport {
         remainingGaps: ["实验统计、停止条件和自动回滚联动仍需增强。"],
         nextActions: ["补 assignment history 和 guardrail 指标。"],
         priority: "p2",
-      },
+      }),
     ],
     recommendedNextCapabilityIds: [
       "real_provider_ingestion_writeback",
@@ -2845,6 +2921,8 @@ export function fallbackRemainingTaskReport(): RemainingTaskReport {
       nextAction: item.nextActions[0] ?? null,
       quickActionPath: "/acceptance",
       quickActionLabel: "Open acceptance",
+      weakestStageId: item.weakestStageId ?? null,
+      weakestStageTitle: item.weakestStageTitle ?? null,
     }));
   return {
     generatedAt: new Date().toISOString(),
@@ -4323,6 +4401,12 @@ export function fallbackVisualFarmStatusReport(): VisualFarmStatusReport {
     probeFresh: false,
     probeStale: true,
     strictPublishReady: false,
+    readinessGapType: "strict_not_enabled",
+    readinessGapSummary: "Visual farm strict mode is disabled or unavailable in fallback data.",
+    remediationAction: "Enable strict visual farm mode and run a fresh probe before production publishing.",
+    remediationActionPath: "/settings?focus=visual-farm-strict",
+    remediationActionLabel: "Enable strict mode",
+    acceptanceGateId: "visual_farm_runtime_ready",
     failureBuckets: health.failureBuckets,
     notes: ["Fallback visual farm status used when the API is unavailable."],
   };

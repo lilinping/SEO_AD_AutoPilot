@@ -91,6 +91,7 @@ from .models import (
     AcceptanceHistoryReport,
     AcceptanceProviderEvidence,
     AcceptanceReport,
+    CapabilityWorkflowStage,
     ProductBenchmarkReference,
     ProductBenchmarkReport,
     ProductCapabilityBenchmark,
@@ -1482,6 +1483,7 @@ class WorkflowService:
                     primary_failure_code,
                     provider,
                 )
+                evidence_gap = self._provider_evidence_gap(provider=provider, counts=counts)
                 provider_coverage.append(
                     ConnectorProviderCoverageItem(
                         provider=provider,
@@ -1520,6 +1522,12 @@ class WorkflowService:
                         primary_blocking_reason=(Counter(counts["blockingReasons"]).most_common(1)[0][0] if counts["blockingReasons"] else None),
                         suggested_action_path=suggested_action_path,
                         suggested_action_label=suggested_action_label,
+                        evidence_gap_type=evidence_gap["gap_type"],
+                        evidence_gap_summary=evidence_gap["summary"],
+                        smoke_action=evidence_gap["smoke_action"],
+                        smoke_action_path=evidence_gap["smoke_action_path"],
+                        smoke_action_label=evidence_gap["smoke_action_label"],
+                        acceptance_gate_id=evidence_gap["acceptance_gate_id"],
                         real_connection_count=counts["real"],
                         fallback_connection_count=counts["fallback"],
                         unconfigured_connection_count=counts["unconfigured"],
@@ -9840,6 +9848,79 @@ class WorkflowService:
             + (25 if any(gate.gate_id == "workspace_auto_cruise" and gate.passed for gate in acceptance.gates) else 0),
         )
 
+        def _stage(
+            stage_id: Literal["intake", "evidence", "execution", "verification", "automation"],
+            title: str,
+            score: int,
+            evidence: list[str],
+            gaps: list[str],
+        ) -> CapabilityWorkflowStage:
+            normalized_score = max(0, min(100, int(score)))
+            return CapabilityWorkflowStage(
+                stage_id=stage_id,
+                title=title,
+                status=_capability_status(normalized_score),
+                score=normalized_score,
+                evidence=evidence,
+                gaps=gaps,
+            )
+
+        workflow_stage_map: dict[str, list[CapabilityWorkflowStage]] = {
+            "real_provider_ingestion_writeback": [
+                _stage("intake", "配置接入", 80 if connectors_health.total_connection_count else 20, [f"totalConnections={connectors_health.total_connection_count}"], ["需要至少配置一个真实 read/write provider。"]),
+                _stage("evidence", "真实证据", real_provider_score, [f"realConnectionRatePercent={real_connection_rate}"], ["真实 provider evidence 覆盖率不足。"]),
+                _stage("execution", "读写执行", 80 if acceptance.read_real_evidence_count and acceptance.write_real_evidence_count else 35, [f"readRealEvidenceCount={acceptance.read_real_evidence_count}", f"writeRealEvidenceCount={acceptance.write_real_evidence_count}"], ["读链路和写回链路需要同时有真实样本。"]),
+                _stage("verification", "新鲜度验收", 80 if "real_provider_samples" not in {gate.gate_id for gate in acceptance.gates if not gate.passed} else 40, ["gate=real_provider_samples"], ["provider evidence freshness 仍会阻断验收。"]),
+                _stage("automation", "自动巡航", 75 if any(gate.gate_id == "workspace_auto_cruise" and gate.passed for gate in acceptance.gates) else 35, ["gate=workspace_auto_cruise"], ["自动巡航尚未稳定覆盖所有真实 provider。"]),
+            ],
+            "visual_farm_production": [
+                _stage("intake", "样本输入", 80 if visual_health.run_count else 35, [f"visualRunCount={visual_health.run_count}"], ["需要稳定视觉回归样本集。"]),
+                _stage("evidence", "截图证据", 85 if visual_farm.last_probe_connected_count else 35, [f"visualFarmConnectedCount={visual_farm.last_probe_connected_count}"], ["截图农场真实端点证据不足。"]),
+                _stage("execution", "回归执行", visual_score, [f"strictPublishReady={visual_farm.strict_publish_ready}"], ["视觉 run 到生产发布门禁仍需压实。"]),
+                _stage("verification", "差异验收", 75 if "visual_regression_production" not in {gate.gate_id for gate in acceptance.gates if not gate.passed} else 40, ["gate=visual_regression_production"], ["最近 clean visual run 不足以通过生产验收。"]),
+                _stage("automation", "失败修复闭环", 60 if visual_farm.strict_publish_ready else 30, [f"strictPublishReady={visual_farm.strict_publish_ready}"], ["视觉失败到 remediation/rollback 的自动链路仍弱。"]),
+            ],
+            "runtime_edge_multisite": [
+                _stage("intake", "站点路由配置", 80 if runtime_edge.project_count else 30, [f"runtimeProjectCount={runtime_edge.project_count}"], ["需要项目级 host/path route 配置。"]),
+                _stage("evidence", "网关证据", 80 if runtime_edge.gateway_ready_count else 35, [f"gatewayReadyCount={runtime_edge.gateway_ready_count}"], ["真实 edge/gateway readiness 证据不足。"]),
+                _stage("execution", "边缘下发", edge_score, [f"runtimeReadyProjectCount={runtime_edge.runtime_ready_count}"], ["canary/full rollout 样本不足。"]),
+                _stage("verification", "探针验收", 80 if any(gate.gate_id == "runtime_edge_probe_ready" and gate.passed for gate in acceptance.gates) else 35, ["gate=runtime_edge_probe_ready"], ["runtime edge probe 未形成稳定发布前证据。"]),
+                _stage("automation", "多站点编排", 75 if runtime_edge.strict_ready_count else 35, [f"strictReadyCount={runtime_edge.strict_ready_count}"], ["多站点 strict rollout 和回滚演练不够。"]),
+            ],
+            "ad_revenue_reporting": [
+                _stage("intake", "广告账号接入", 80 if "ad_network" in acceptance.read_real_providers else 30, [f"readRealProviders={','.join(acceptance.read_real_providers) or 'none'}"], ["需要真实广告平台账号或 reporting endpoint。"]),
+                _stage("evidence", "收益指标证据", ads_score, [f"readRealEvidenceCount={acceptance.read_real_evidence_count}"], ["广告收益、展示、点击、RPM 真实证据不足。"]),
+                _stage("execution", "报表拉取", 75 if "ad_network" in acceptance.read_real_providers else 35, ["provider=ad_network"], ["需要 provider smoke 覆盖 GAM/AdSense 风格响应。"]),
+                _stage("verification", "口径校验", 55 if acceptance.read_real_evidence_count else 25, [f"readRealEvidenceCount={acceptance.read_real_evidence_count}"], ["收益口径和结算窗口还需生产对齐。"]),
+                _stage("automation", "异常回传", 55 if acceptance.write_real_evidence_count else 25, [f"writeRealEvidenceCount={acceptance.write_real_evidence_count}"], ["异常收益回传和告警联动不足。"]),
+            ],
+            "merchant_settlement": [
+                _stage("intake", "结算配置", 80 if billing_gateway.gateway_ready else 30, [f"billingGatewayReady={billing_gateway.gateway_ready}"], ["需要真实结算网关配置。"]),
+                _stage("evidence", "网关证据", billing_score, [f"routeReadyCount={acceptance.billing_gateway_route_ready_count}"], ["结算 route ready 证据不足。"]),
+                _stage("execution", "付款执行", 55 if billing_gateway.gateway_ready else 25, ["gatewayAdapter=http"], ["尚未接具体支付 SDK 和 payout 状态机。"]),
+                _stage("verification", "审计对账", 55 if acceptance.write_real_evidence_count else 25, [f"writeRealEvidenceCount={acceptance.write_real_evidence_count}"], ["provider payout ID、对账和失败补偿不足。"]),
+                _stage("automation", "合规自动化", 35, ["complianceFlow=manual"], ["商户账户、合规和自动重试仍未生产化。"]),
+            ],
+            "experimentation_runtime_governance": [
+                _stage("intake", "实验策略配置", 75 if runtime_edge.project_count else 30, [f"runtimeProjectCount={runtime_edge.project_count}"], ["需要项目级实验策略和受众配置。"]),
+                _stage("evidence", "分流证据", experimentation_score, [f"previewOnlyProjectCount={runtime_edge.preview_only_count}"], ["分流结果历史和 guardrail 指标不足。"]),
+                _stage("execution", "运行时分配", 75 if runtime_edge.project_count else 35, ["runtimeAssignment=available"], ["运行时分配还需更多真实请求轨迹。"]),
+                _stage("verification", "停止条件", 45, ["guardrails=partial"], ["实验停止条件和自动回滚联动不足。"]),
+                _stage("automation", "灰度治理", 75 if any(gate.gate_id == "workspace_auto_cruise" and gate.passed for gate in acceptance.gates) else 35, ["gate=workspace_auto_cruise"], ["自动巡航还未形成完整实验治理闭环。"]),
+            ],
+        }
+
+        def _attach_workflow(capability: ProductCapabilityBenchmark) -> ProductCapabilityBenchmark:
+            stages = workflow_stage_map.get(capability.capability_id, [])
+            if not stages:
+                return capability
+            weakest = min(stages, key=lambda stage: stage.score)
+            return capability.model_copy(update={
+                "workflow_stages": stages,
+                "weakest_stage_id": weakest.stage_id,
+                "weakest_stage_title": weakest.title,
+            })
+
         capabilities = [
             ProductCapabilityBenchmark(
                 capability_id="real_provider_ingestion_writeback",
@@ -9967,6 +10048,7 @@ class WorkflowService:
                 priority="p2",
             ),
         ]
+        capabilities = [_attach_workflow(capability) for capability in capabilities]
         production_ready_count = sum(1 for item in capabilities if item.current_status == "production_ready")
         partial_count = sum(1 for item in capabilities if item.current_status == "partial")
         missing_count = sum(1 for item in capabilities if item.current_status == "missing")
@@ -10038,6 +10120,8 @@ class WorkflowService:
                     next_action=capability.next_actions[0] if capability.next_actions else None,
                     quick_action_path=quick_action_path,
                     quick_action_label=quick_action_label,
+                    weakest_stage_id=capability.weakest_stage_id,
+                    weakest_stage_title=capability.weakest_stage_title,
                 )
             )
 
@@ -10313,6 +10397,13 @@ class WorkflowService:
             notes.append("Latest visual farm probe still has blocking endpoint failures.")
         if health.strict_mode and not strict_publish_ready:
             notes.append("Strict visual publish readiness is not met.")
+        readiness_gap = self._visual_farm_readiness_gap(
+            health=health,
+            token_configured=token_configured,
+            latest_probe=latest_probe,
+            probe_fresh=probe_fresh,
+            strict_publish_ready=strict_publish_ready,
+        )
         return VisualFarmStatusReport(
             project_id=normalized_project_id,
             strict_mode=health.strict_mode,
@@ -10338,9 +10429,101 @@ class WorkflowService:
             probe_fresh=probe_fresh,
             probe_stale=probe_stale,
             strict_publish_ready=strict_publish_ready,
+            readiness_gap_type=readiness_gap["gap_type"],
+            readiness_gap_summary=readiness_gap["summary"],
+            remediation_action=readiness_gap["action"],
+            remediation_action_path=readiness_gap["path"],
+            remediation_action_label=readiness_gap["label"],
+            acceptance_gate_id="visual_farm_runtime_ready",
             failure_buckets=health.failure_buckets,
             notes=notes,
         )
+
+    def _visual_farm_readiness_gap(
+        self,
+        *,
+        health: VisualRegressionHealthReport,
+        token_configured: bool,
+        latest_probe: Any,
+        probe_fresh: bool,
+        strict_publish_ready: bool,
+    ) -> dict[str, str]:
+        if strict_publish_ready:
+            return {
+                "gap_type": "none",
+                "summary": "Visual farm is strict publish ready.",
+                "action": "Keep visual farm probes fresh before every production publish.",
+                "path": "/quality#visual-farm-runtime",
+                "label": "View visual farm",
+            }
+        if not health.strict_mode:
+            return {
+                "gap_type": "strict_not_enabled",
+                "summary": "Visual farm strict mode is disabled, so production readiness is advisory only.",
+                "action": "Enable strict visual farm mode when production publishing depends on screenshot evidence.",
+                "path": "/settings?focus=visual-farm-strict",
+                "label": "Enable strict mode",
+            }
+        if health.configured_endpoint_count <= 0:
+            return {
+                "gap_type": "missing_endpoint",
+                "summary": "No visual farm endpoint is configured.",
+                "action": "Configure at least one visual farm endpoint and rerun the probe.",
+                "path": "/settings?focus=visual-farm-endpoint",
+                "label": "Configure endpoint",
+            }
+        if not token_configured:
+            return {
+                "gap_type": "missing_token",
+                "summary": "Visual farm access token is missing.",
+                "action": "Add visual farm credentials or credentials JSON before running production probes.",
+                "path": "/settings?focus=visual-farm-token",
+                "label": "Add token",
+            }
+        if latest_probe is None:
+            return {
+                "gap_type": "missing_probe",
+                "summary": "No visual farm probe has been executed yet.",
+                "action": "Run a visual farm probe to create fresh endpoint evidence.",
+                "path": "/quality#visual-farm-runtime",
+                "label": "Run probe",
+            }
+        if not probe_fresh:
+            return {
+                "gap_type": "stale_probe",
+                "summary": "Latest visual farm probe is stale for the configured freshness window.",
+                "action": "Rerun the visual farm probe before publishing.",
+                "path": "/quality#visual-farm-runtime",
+                "label": "Refresh probe",
+            }
+        if int(getattr(latest_probe, "blocking_count", 0) or 0) > 0:
+            return {
+                "gap_type": "blocking_probe",
+                "summary": "Latest visual farm probe still contains blocking endpoint failures.",
+                "action": "Fix blocking visual farm endpoints, then rerun the probe.",
+                "path": "/quality#visual-farm-runtime",
+                "label": "Fix endpoints",
+            }
+        if any([
+            health.last_run_failed_case_count,
+            health.last_run_fallback_case_count,
+            health.last_run_not_configured_case_count,
+            health.last_run_strict_blocked_case_count,
+        ]):
+            return {
+                "gap_type": "run_failures",
+                "summary": "Latest visual regression run still has failed, fallback, unconfigured, or strict-blocked cases.",
+                "action": "Rerun visual regression after clearing provider failures and artifact gaps.",
+                "path": "/quality#visual-regressions",
+                "label": "Review run",
+            }
+        return {
+            "gap_type": "run_failures",
+            "summary": "Visual farm is not strict publish ready; review latest probe and run evidence.",
+            "action": "Review visual farm runtime status and rerun the production smoke path.",
+            "path": "/quality#visual-farm-runtime",
+            "label": "Review status",
+        }
 
     def _visual_farm_deployment_runtime_config(
         self,
@@ -18478,6 +18661,62 @@ class WorkflowService:
                 "Priority ordering favors deterministic blockers before transient retry categories.",
             ],
         )
+
+    def _provider_evidence_gap(self, *, provider: ConnectorKind, counts: dict[str, Any]) -> dict[str, Optional[str]]:
+        total = int(counts.get("total") or 0)
+        real = int(counts.get("real") or 0)
+        fallback = int(counts.get("fallback") or 0)
+        unconfigured = int(counts.get("unconfigured") or 0)
+        strict_eligible = int(counts.get("strictEligible") or 0)
+        blocking_projects = len(counts.get("blockingProjects") or [])
+
+        gate_id = "real_provider_samples"
+        if provider == ConnectorKind.ad_network:
+            gate_id = "mvp_ad_recommendations"
+        elif provider in {ConnectorKind.trend, ConnectorKind.news, ConnectorKind.qa}:
+            gate_id = "market_evidence_freshness"
+        elif provider in {ConnectorKind.github, ConnectorKind.cms, ConnectorKind.script_api}:
+            gate_id = "real_provider_samples"
+
+        if total <= 0 or unconfigured == total:
+            gap_type = "missing_real"
+            summary = f"{provider.value} has no configured real evidence sample."
+            action = f"Configure {provider.value} credentials and run a provider smoke refresh."
+            path = f"/settings?focus=connector&provider={provider.value}"
+            label = "Configure provider"
+        elif real == 0 and fallback > 0:
+            gap_type = "fallback_only"
+            summary = f"{provider.value} is still fallback-only; strict gates need real evidence."
+            action = f"Replace fallback {provider.value} data with a real API/read-write sample."
+            path = f"/monitor?focus=provider-smoke&provider={provider.value}"
+            label = "Run provider smoke"
+        elif strict_eligible < total:
+            gap_type = "strict_gap"
+            summary = f"{provider.value} has {total - strict_eligible} connection(s) missing strict-ready evidence."
+            action = f"Refresh strict-gap {provider.value} connections and verify evidence freshness."
+            path = f"/monitor?focus=strict-gap&provider={provider.value}"
+            label = "Refresh strict gaps"
+        elif blocking_projects > 0:
+            gap_type = "blocking"
+            summary = f"{provider.value} still blocks {blocking_projects} project(s)."
+            action = f"Open blocking {provider.value} projects and clear provider failures."
+            path = f"/projects?focus=provider&provider={provider.value}"
+            label = "Open projects"
+        else:
+            gap_type = "none"
+            summary = f"{provider.value} has real strict-ready provider evidence."
+            action = f"Keep {provider.value} evidence fresh with scheduled smoke checks."
+            path = f"/monitor?focus=provider-smoke&provider={provider.value}"
+            label = "View smoke status"
+
+        return {
+            "gap_type": gap_type,
+            "summary": summary,
+            "smoke_action": action,
+            "smoke_action_path": path,
+            "smoke_action_label": label,
+            "acceptance_gate_id": gate_id,
+        }
 
     def _provider_suggested_action(
         self,
