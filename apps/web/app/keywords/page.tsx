@@ -276,3 +276,5 @@ export default function KeywordsPage() {
     </div>
   );
 }
+
+export const dynamic = "force-dynamic";

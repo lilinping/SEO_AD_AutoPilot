@@ -1,3 +1,4 @@
+from .header_bidding import PrebidHeaderBiddingPlatform
 from .base import AdPlatform, AdSlot, AdRecommendation, AdPlatformType
 from .adsense import AdSensePlatform
 from .mediavine import MediavinePlatform

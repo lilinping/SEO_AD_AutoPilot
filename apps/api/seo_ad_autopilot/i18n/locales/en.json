@@ -1,0 +1,51 @@
+{
+  "agent": {
+    "analysis_complete": "Analysis complete",
+    "analysis_started": "Analysis started for {url}",
+    "agent_done": "Agent {agent} completed",
+    "debate_done": "Debate round complete",
+    "skills_selected": "{count} skills selected",
+    "timeout": "Agent timed out",
+    "error": "Agent error: {message}",
+    "dry_run": "Dry-run mode — no changes applied"
+  },
+  "content": {
+    "generated": "Content generated successfully",
+    "generation_failed": "Content generation failed: {error}",
+    "schema_generated": "Schema markup generated",
+    "decay_detected": "Content decay detected — {count} pages need refresh"
+  },
+  "keyword": {
+    "research_complete": "Keyword research complete — {count} keywords found",
+    "no_results": "No keyword data found for the given query"
+  },
+  "ad": {
+    "platforms_analyzed": "{count} ad platforms evaluated",
+    "recommendation": "Recommended platform: {platform} (confidence: {confidence})",
+    "no_platforms": "No suitable ad platforms found"
+  },
+  "rank": {
+    "snapshot_taken": "Rank snapshot taken — {count} keywords tracked",
+    "position_improved": "{keyword} improved from #{old} to #{new}",
+    "position_dropped": "{keyword} dropped from #{old} to #{new}",
+    "alert_configured": "Rank alert configured for {count} keywords"
+  },
+  "competitor": {
+    "discovered": "{count} competitors discovered",
+    "gap_found": "{count} keyword gaps identified",
+    "content_gap": "{count} content opportunities found"
+  },
+  "error": {
+    "url_required": "URL is required",
+    "invalid_url": "Invalid URL: {url}",
+    "api_key_missing": "{service} API key not configured. Set {env_var} env var.",
+    "rate_limit": "Rate limit exceeded. Retry after {seconds}s.",
+    "timeout": "Request timed out after {seconds}s",
+    "internal": "Internal server error: {message}"
+  },
+  "health": {
+    "ok": "Service is healthy",
+    "degraded": "Service is degraded: {reason}",
+    "not_ready": "Service not ready: {reason}"
+  }
+}

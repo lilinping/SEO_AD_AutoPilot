@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .base import Agent, AgentOutput, AgentRole, SiteContext
+from .base import Agent, AgentOutput, AgentRole, SiteContext, DebateOpinion, DebateStance
 
 
 class StrategistAgent(Agent):
@@ -79,6 +79,52 @@ class StrategistAgent(Agent):
         
         return None
     
+    def offer_opinion(
+        self,
+        topic: str,
+        proposal: dict[str, Any],
+        context: SiteContext,
+        previous_opinions: list[DebateOpinion] = None,
+    ) -> DebateOpinion:
+        """Opine from a strategic ROI / prioritisation perspective."""
+        opps = context.opportunities or []
+        strategies = self._prioritize_opportunities(opps, context)
+        timeline = self._estimate_timeline(strategies)
+        resources = self._estimate_resources(strategies)
+        dev_h: int = resources.get("development_hours", 0)
+        high_impact = [s for s in strategies if s.get("impact_score", 0) >= 0.7]
+
+        if len(high_impact) >= 3 and dev_h <= 80:
+            return DebateOpinion(
+                agent_role=self._role,
+                stance=DebateStance.AGREE,
+                reasoning=(f"Strong ROI: {len(high_impact)} high-impact strategies "
+                           f"achievable in ~{dev_h}h dev effort."),
+                evidence=[f"High-impact: {len(high_impact)}/{len(strategies)}",
+                          f"Dev effort: {dev_h}h | Timeline: {timeline}"],
+                confidence=0.88,
+            )
+        if len(high_impact) >= 1:
+            return DebateOpinion(
+                agent_role=self._role,
+                stance=DebateStance.PARTIALLY_AGREE,
+                reasoning=f"Viable but {dev_h}h effort may strain resources — phased rollout recommended.",
+                evidence=[f"High-impact strategies: {len(high_impact)}",
+                          f"Dev effort: {dev_h}h"],
+                confidence=0.74,
+                conditions=["Phase 1: quick-wins only",
+                            "Reassess after Phase-1 results"],
+            )
+        return DebateOpinion(
+            agent_role=self._role,
+            stance=DebateStance.DISAGREE,
+            reasoning="Insufficient high-impact opportunities to justify investment.",
+            evidence=[f"High-impact: {len(high_impact)} (minimum 1 required)",
+                      "ROI projections below threshold"],
+            confidence=0.80,
+            conditions=["Identify >= 1 high-impact opportunity before proceeding"],
+        )
+
     def _prioritize_opportunities(
         self,
         opportunities: list[dict[str, Any]],

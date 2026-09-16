@@ -38,6 +38,9 @@ class SearchEngineCategory(str, Enum):
     GOOGLE_AI_OVERVIEWS = "google_ai_overviews"
     OTHER = "other"
 
+# Backwards-compatible aliases expected by search_engines.__init__.
+SearchProvider = SearchEngineCategory
+SearchFeature = str
 
 @dataclass
 class SearchQuery:

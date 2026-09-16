@@ -31,7 +31,8 @@
     "monitor": "Monitor",
     "settings": "Settings",
     "ecommerce": "E-commerce",
-    "keywords": "Keywords"
+    "keywords": "Keywords",
+    "pricing": "Pricing"
   },
   "ecommerce": {
     "title": "E-commerce Analysis",

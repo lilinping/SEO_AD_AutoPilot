@@ -81,18 +81,19 @@ async def analyze_site(request: AnalyzeRequest) -> AnalyzeResponse:
     5. 参考竞品做法
     6. 生成个性化建议
     """
-    url = request.url
-    
-    # Validate
-    try:
-        parsed = urlparse(url)
-        if not parsed.scheme or not parsed.netloc:
-            raise HTTPException(status_code=400, detail="Invalid URL format")
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid URL format")
-    
+    url = request.url.strip()
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
+
+    # Validate after normalizing bare domains from the UI.
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise HTTPException(status_code=400, detail="Invalid URL format")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid URL format")
     
     start_time = datetime.now()
     pipeline = []

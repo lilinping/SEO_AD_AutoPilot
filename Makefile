@@ -1,4 +1,8 @@
-.PHONY: api-dev api-test web-dev web-build web-typecheck test seed worker
+.PHONY: api web api-dev api-test web-dev web-build web-typecheck test seed worker
+
+api: api-dev
+
+web: web-dev
 
 api-dev:
 	./.venv/bin/uvicorn apps.api.seo_ad_autopilot.app:create_app --factory --reload --host 127.0.0.1 --port 8000

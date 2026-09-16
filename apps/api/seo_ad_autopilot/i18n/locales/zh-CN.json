@@ -1,0 +1,51 @@
+{
+  "agent": {
+    "analysis_complete": "分析完成",
+    "analysis_started": "已开始分析 {url}",
+    "agent_done": "Agent {agent} 执行完成",
+    "debate_done": "辩论轮次完成",
+    "skills_selected": "已选择 {count} 个技能",
+    "timeout": "Agent 执行超时",
+    "error": "Agent 错误：{message}",
+    "dry_run": "预演模式 — 不执行实际操作"
+  },
+  "content": {
+    "generated": "内容生成成功",
+    "generation_failed": "内容生成失败：{error}",
+    "schema_generated": "结构化数据标记已生成",
+    "decay_detected": "检测到内容衰减 — {count} 个页面需要更新"
+  },
+  "keyword": {
+    "research_complete": "关键词研究完成 — 找到 {count} 个关键词",
+    "no_results": "未找到相关关键词数据"
+  },
+  "ad": {
+    "platforms_analyzed": "已评估 {count} 个广告平台",
+    "recommendation": "推荐平台：{platform}（置信度：{confidence}）",
+    "no_platforms": "未找到合适的广告平台"
+  },
+  "rank": {
+    "snapshot_taken": "排名快照已记录 — 追踪 {count} 个关键词",
+    "position_improved": "{keyword} 排名从第 {old} 位提升至第 {new} 位",
+    "position_dropped": "{keyword} 排名从第 {old} 位下降至第 {new} 位",
+    "alert_configured": "已为 {count} 个关键词配置排名预警"
+  },
+  "competitor": {
+    "discovered": "发现 {count} 个竞品网站",
+    "gap_found": "发现 {count} 个关键词差距",
+    "content_gap": "发现 {count} 个内容机会"
+  },
+  "error": {
+    "url_required": "URL 为必填项",
+    "invalid_url": "无效的 URL：{url}",
+    "api_key_missing": "{service} API Key 未配置，请设置环境变量 {env_var}",
+    "rate_limit": "请求频率超限，请在 {seconds} 秒后重试",
+    "timeout": "请求在 {seconds} 秒后超时",
+    "internal": "服务器内部错误：{message}"
+  },
+  "health": {
+    "ok": "服务正常",
+    "degraded": "服务降级：{reason}",
+    "not_ready": "服务未就绪：{reason}"
+  }
+}

@@ -66,6 +66,9 @@ def analyze_site_for_ads(url: str, site_data: dict[str, Any]) -> dict[str, Any]:
     from .monumetric import MonumetricPlatform
     from .pubmatic import PubMaticPlatform
     
+    from .amazon_ads import AmazonAdsPlatform
+    from .header_bidding import PrebidHeaderBiddingPlatform
+
     # Create auto-discovery instance
     discovery = AdPlatformAutoDiscovery()
     
@@ -76,6 +79,8 @@ def analyze_site_for_ads(url: str, site_data: dict[str, Any]) -> dict[str, Any]:
     discovery.register(AdThrivePlatform())
     discovery.register(MonumetricPlatform())
     discovery.register(PubMaticPlatform())
+    discovery.register(AmazonAdsPlatform())
+    discovery.register(PrebidHeaderBiddingPlatform())
     
     # Build site profile from data
     site_profile = {

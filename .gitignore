@@ -39,3 +39,16 @@ SEO-AD_AutoPilot_文档包/*.docx
 
 # Agent memory
 .mimocode/
+
+# Generated local artifacts
+*.egg-info/
+*.tsbuildinfo
+.venv.broken-backup-*/
+
+# External/reference workspaces kept out of the app repository
+/OpenClaw/
+/BettaFish/
+/skills/
+
+# Generated package/build metadata
+/seo_ad_autopilot.egg-info/

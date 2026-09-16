@@ -2666,6 +2666,15 @@ class ProductBenchmarkReference(APIModel):
     observed_capabilities: list[str] = Field(default_factory=list)
 
 
+class CapabilityWorkflowStage(APIModel):
+    stage_id: Literal["intake", "evidence", "execution", "verification", "automation"]
+    title: str
+    status: Literal["production_ready", "operational", "partial", "missing"]
+    score: int = 0
+    evidence: list[str] = Field(default_factory=list)
+    gaps: list[str] = Field(default_factory=list)
+
+
 class ProductCapabilityBenchmark(APIModel):
     capability_id: str
     title: str
@@ -2676,6 +2685,9 @@ class ProductCapabilityBenchmark(APIModel):
     remaining_gaps: list[str] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
     priority: Literal["p0", "p1", "p2", "p3"] = "p2"
+    workflow_stages: list[CapabilityWorkflowStage] = Field(default_factory=list)
+    weakest_stage_id: Optional[str] = None
+    weakest_stage_title: Optional[str] = None
 
 
 class ProductBenchmarkReport(APIModel):
@@ -2705,6 +2717,8 @@ class RemainingTaskItem(APIModel):
     next_action: Optional[str] = None
     quick_action_path: Optional[str] = None
     quick_action_label: Optional[str] = None
+    weakest_stage_id: Optional[str] = None
+    weakest_stage_title: Optional[str] = None
 
 
 class RemainingTaskReport(APIModel):
@@ -2945,6 +2959,12 @@ class VisualFarmStatusReport(APIModel):
     probe_fresh: bool = False
     probe_stale: bool = True
     strict_publish_ready: bool = False
+    readiness_gap_type: Optional[Literal["missing_endpoint", "missing_token", "missing_probe", "stale_probe", "blocking_probe", "run_failures", "strict_not_enabled", "none"]] = None
+    readiness_gap_summary: Optional[str] = None
+    remediation_action: Optional[str] = None
+    remediation_action_path: Optional[str] = None
+    remediation_action_label: Optional[str] = None
+    acceptance_gate_id: Optional[str] = "visual_farm_runtime_ready"
     failure_buckets: list["VisualRegressionFailureBucket"] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 
@@ -3640,6 +3660,12 @@ class ConnectorProviderCoverageItem(APIModel):
     primary_blocking_reason: Optional[str] = None
     suggested_action_path: Optional[str] = None
     suggested_action_label: Optional[str] = None
+    evidence_gap_type: Optional[Literal["missing_real", "fallback_only", "strict_gap", "blocking", "stale_or_unknown", "none"]] = None
+    evidence_gap_summary: Optional[str] = None
+    smoke_action: Optional[str] = None
+    smoke_action_path: Optional[str] = None
+    smoke_action_label: Optional[str] = None
+    acceptance_gate_id: Optional[str] = None
     real_connection_count: int = 0
     fallback_connection_count: int = 0
     unconfigured_connection_count: int = 0

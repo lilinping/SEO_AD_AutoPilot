@@ -1338,6 +1338,23 @@ class SmokeWorkflowTests(unittest.TestCase):
                 all("suggestedActionPath" in item and "suggestedActionLabel" in item for item in workspace_connectors_health_payload["providerCoverage"])
             )
             self.assertTrue(
+                all(
+                    "evidenceGapType" in item
+                    and "evidenceGapSummary" in item
+                    and "smokeAction" in item
+                    and "smokeActionPath" in item
+                    and "smokeActionLabel" in item
+                    and "acceptanceGateId" in item
+                    for item in workspace_connectors_health_payload["providerCoverage"]
+                )
+            )
+            self.assertTrue(
+                all(
+                    item["evidenceGapType"] in {"missing_real", "fallback_only", "strict_gap", "blocking", "stale_or_unknown", "none"}
+                    for item in workspace_connectors_health_payload["providerCoverage"]
+                )
+            )
+            self.assertTrue(
                 any(item["projectId"] == project_id for item in workspace_connectors_health_payload["projects"])
             )
             provider_coverage_map = {
@@ -1680,6 +1697,15 @@ class SmokeWorkflowTests(unittest.TestCase):
             self.assertIn("visual_farm_production", benchmark_ids)
             self.assertIn("runtime_edge_multisite", benchmark_ids)
             self.assertTrue(all(0 <= int(item["maturityScore"]) <= 100 for item in product_benchmark_payload["capabilities"]))
+            self.assertTrue(all(len(item.get("workflowStages", [])) == 5 for item in product_benchmark_payload["capabilities"]))
+            self.assertTrue(all(item.get("weakestStageId") for item in product_benchmark_payload["capabilities"]))
+            self.assertTrue(
+                all(
+                    {stage["stageId"] for stage in item["workflowStages"]}
+                    == {"intake", "evidence", "execution", "verification", "automation"}
+                    for item in product_benchmark_payload["capabilities"]
+                )
+            )
             remaining_tasks = client.get("/api/product-benchmark/remaining")
             self.assertEqual(remaining_tasks.status_code, 200)
             remaining_tasks_payload = remaining_tasks.json()
@@ -1691,6 +1717,7 @@ class SmokeWorkflowTests(unittest.TestCase):
             self.assertTrue(
                 all("quickActionPath" in item and "quickActionLabel" in item for item in remaining_tasks_payload["items"])
             )
+            self.assertTrue(all("weakestStageId" in item and "weakestStageTitle" in item for item in remaining_tasks_payload["items"]))
             remaining_board = client.get("/api/product-benchmark/remaining/board")
             self.assertEqual(remaining_board.status_code, 200)
             remaining_board_payload = remaining_board.json()
@@ -1790,6 +1817,16 @@ class SmokeWorkflowTests(unittest.TestCase):
             self.assertIn("strictPublishReady", visual_farm_payload)
             self.assertIn("probeFresh", visual_farm_payload)
             self.assertIn("probeStale", visual_farm_payload)
+            self.assertIn("readinessGapType", visual_farm_payload)
+            self.assertIn(
+                visual_farm_payload["readinessGapType"],
+                {"missing_endpoint", "missing_token", "missing_probe", "stale_probe", "blocking_probe", "run_failures", "strict_not_enabled", "none"},
+            )
+            self.assertIn("readinessGapSummary", visual_farm_payload)
+            self.assertIn("remediationAction", visual_farm_payload)
+            self.assertIn("remediationActionPath", visual_farm_payload)
+            self.assertIn("remediationActionLabel", visual_farm_payload)
+            self.assertEqual(visual_farm_payload["acceptanceGateId"], "visual_farm_runtime_ready")
             self.assertIn("lastProbeExecutedAt", visual_farm_payload)
             self.assertIn("failureBuckets", visual_farm_payload)
             visual_farm_probe_blocked = client.get("/api/visual-farm/probe")
