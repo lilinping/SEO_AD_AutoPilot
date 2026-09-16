@@ -55,3 +55,16 @@ async def research_keywords(request: KeywordResearchRequest) -> dict[str, Any]:
             return {"success": False, "error": output.error, "execution_time_ms": elapsed}
     except Exception as e:
         return {"success": False, "error": str(e), "execution_time_ms": int((time.time() - start) * 1000)}
+
+
+@router.get("/data-source")
+async def keyword_data_source_readiness() -> dict[str, Any]:
+    """Report the real-data readiness of the keyword/search data source.
+
+    Lets the console show a data-trust badge and an actionable remediation
+    without having to run a full keyword research request first.
+    """
+    from ..data_provenance import evaluate_search_source_provenance
+
+    provenance = evaluate_search_source_provenance()
+    return {"success": True, "provenance": provenance.model_dump(by_alias=True)}

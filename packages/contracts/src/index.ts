@@ -2112,6 +2112,7 @@ export interface ProjectDetail {
   adaptiveComponents?: AdaptiveComponentReport | null;
   technicalSeo?: TechnicalSeoReport | null;
   technicalSeoPatch?: TechnicalSeoPatchReport | null;
+  seoConversionAudit?: SeoConversionAuditReport | null;
 }
 
 export interface ContentCluster {
@@ -2323,6 +2324,56 @@ export interface TechnicalSeoPatchReport {
   strictMode: boolean;
   patchAudit?: Record<string, unknown>;
   steps: TechnicalSeoPatchStep[];
+  notes: string[];
+}
+
+export interface SeoConversionAuditFinding {
+  findingId: string;
+  priority: "P0" | "P1" | "P2" | "P3";
+  area: string;
+  issue: string;
+  impact: "high" | "medium" | "low";
+  evidence: string[];
+  recommendedAction: string;
+  verification: string;
+  evidenceStatus: "observed" | "needs_verification";
+  requiresApproval: boolean;
+  rollbackRequired: boolean;
+}
+
+export interface SeoBaselineReadiness {
+  windowDays: number;
+  ready: boolean;
+  sources: string[];
+  note: string;
+}
+
+export interface ConversionAttributionReadiness {
+  conversionGoal: string;
+  status: "ready" | "needs_verification";
+  availableSources: string[];
+  missingSources: string[];
+  recommendedPrecedence: string[];
+  note: string;
+}
+
+export interface SeoAuditReviewCheckpoint {
+  day: number;
+  focus: string;
+  requiredSources: string[];
+  ready: boolean;
+}
+
+export interface SeoConversionAuditReport {
+  reportId: string;
+  projectId: string;
+  taskId: string;
+  generatedAt: string;
+  technicalReportId: string;
+  findings: SeoConversionAuditFinding[];
+  baselineReadiness: SeoBaselineReadiness[];
+  attribution: ConversionAttributionReadiness;
+  reviewCheckpoints: SeoAuditReviewCheckpoint[];
   notes: string[];
 }
 

@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote, urlencode, urljoin, urlparse
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -56,6 +56,17 @@ class ConnectorContext:
     task_id: Optional[str]
     intake: SiteIntake
     connection: ProjectConnection
+
+
+@dataclass(frozen=True)
+class GoogleAccessTokenResult:
+    """Resolved Google API credential without persisting short-lived tokens."""
+
+    access_token: str
+    auth_source: str
+    fallback_reason: Optional[str] = None
+    failure_code: Optional[str] = None
+    retryable: bool = False
 
 
 def _site_host(intake: SiteIntake) -> str:
@@ -242,6 +253,10 @@ def _connection_config(provider: ConnectorKind, intake: SiteIntake, settings: Se
             ("accessToken", ["searchConsoleAccessToken"]),
             ("credentialsJson", ["searchConsoleCredentialsJson"]),
             ("serviceAccountJson", ["searchConsoleServiceAccountJson"]),
+            ("refreshToken", ["searchConsoleRefreshToken"]),
+            ("clientId", ["searchConsoleClientId"]),
+            ("clientSecret", ["searchConsoleClientSecret"]),
+            ("tokenEndpoint", ["searchConsoleTokenEndpoint"]),
             ("apiEndpoint", ["searchConsoleApiEndpoint", "searchConsoleEndpoint"]),
             ("apiEndpoints", ["searchConsoleApiEndpoints", "searchConsoleEndpoints"]),
         ):
@@ -251,12 +266,26 @@ def _connection_config(provider: ConnectorKind, intake: SiteIntake, settings: Se
         return payload
     if provider == ConnectorKind.ga4:
         payload = dict(intake.ga4)
-        payload.setdefault("property", host)
+        property_id = str(
+            _connector_rule_value(intake, ["ga4PropertyId", "ga4Property"])
+            or os.getenv("SEO_AD_BOT_GA4_PROPERTY_ID", "")
+            or os.getenv("GOOGLE_ANALYTICS_PROPERTY_ID", "")
+            or ""
+        ).strip()
+        if property_id:
+            payload.setdefault("propertyId", property_id)
+            payload.setdefault("property", property_id)
+        else:
+            payload.setdefault("property", host)
         payload.setdefault("siteUrl", intake.url)
         for key, rule_keys in (
             ("accessToken", ["ga4AccessToken"]),
             ("credentialsJson", ["ga4CredentialsJson"]),
             ("serviceAccountJson", ["ga4ServiceAccountJson"]),
+            ("refreshToken", ["ga4RefreshToken"]),
+            ("clientId", ["ga4ClientId"]),
+            ("clientSecret", ["ga4ClientSecret"]),
+            ("tokenEndpoint", ["ga4TokenEndpoint"]),
             ("apiEndpoint", ["ga4ApiEndpoint", "ga4Endpoint"]),
             ("apiEndpoints", ["ga4ApiEndpoints", "ga4Endpoints"]),
         ):
@@ -453,20 +482,20 @@ def _has_access_credentials(provider: ConnectorKind, config: dict[str, Any]) -> 
 
     if provider == ConnectorKind.search_console:
         return has_secret(
-            ["accessToken", "credentialsJson", "serviceAccountJson"],
+            ["accessToken", "credentialsJson", "refreshToken"],
             [
                 "SEO_AD_BOT_SEARCH_CONSOLE_ACCESS_TOKEN",
                 "SEO_AD_BOT_SEARCH_CONSOLE_CREDENTIALS_JSON",
-                "SEO_AD_BOT_SEARCH_CONSOLE_SERVICE_ACCOUNT_JSON",
+                "SEO_AD_BOT_SEARCH_CONSOLE_REFRESH_TOKEN",
             ],
         )
     if provider == ConnectorKind.ga4:
         return has_secret(
-            ["accessToken", "credentialsJson", "serviceAccountJson"],
+            ["accessToken", "credentialsJson", "refreshToken"],
             [
                 "SEO_AD_BOT_GA4_ACCESS_TOKEN",
                 "SEO_AD_BOT_GA4_CREDENTIALS_JSON",
-                "SEO_AD_BOT_GA4_SERVICE_ACCOUNT_JSON",
+                "SEO_AD_BOT_GA4_REFRESH_TOKEN",
             ],
         )
     if provider == ConnectorKind.github:
@@ -669,6 +698,130 @@ def _resolve_credential(config: dict[str, Any], keys: list[str], env_keys: list[
     return token, source
 
 
+def _http_form_json(
+    url: str,
+    *,
+    payload: dict[str, Any],
+    timeout: int = 10,
+) -> dict[str, Any]:
+    """Submit an OAuth form request without logging or storing the returned token."""
+    data = urlencode({key: str(value) for key, value in payload.items() if value not in (None, "")}).encode("utf-8")
+    request = Request(
+        url,
+        data=data,
+        headers={
+            "User-Agent": "SEO-AD-AutoPilot/1.0",
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        method="POST",
+    )
+    with urlopen(request, timeout=timeout) as response:  # nosec - configured OAuth provider call
+        body = response.read().decode("utf-8", errors="replace")
+        if not body:
+            return {"status": response.status}
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError:
+            return {"raw": body, "status": response.status}
+
+
+def _resolve_google_access_token(config: dict[str, Any], provider: str) -> GoogleAccessTokenResult:
+    """Resolve a direct token first, otherwise exchange a configured refresh token."""
+    normalized_provider = provider.upper()
+    access_token, auth_source = _resolve_credential(
+        config,
+        ["accessToken", "credentialsJson"],
+        [f"SEO_AD_BOT_{normalized_provider}_ACCESS_TOKEN"],
+    )
+    if access_token:
+        return GoogleAccessTokenResult(access_token=access_token, auth_source=auth_source)
+
+    refresh_token, refresh_source = _resolve_credential(
+        config,
+        ["refreshToken"],
+        [f"SEO_AD_BOT_{normalized_provider}_REFRESH_TOKEN"],
+    )
+    client_id, client_id_source = _resolve_credential(
+        config,
+        ["clientId"],
+        [
+            f"SEO_AD_BOT_{normalized_provider}_CLIENT_ID",
+            "SEO_AD_BOT_GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_SEARCH_CONSOLE_CLIENT_ID",
+        ],
+    )
+    client_secret, client_secret_source = _resolve_credential(
+        config,
+        ["clientSecret"],
+        [
+            f"SEO_AD_BOT_{normalized_provider}_CLIENT_SECRET",
+            "SEO_AD_BOT_GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_SEARCH_CONSOLE_CLIENT_SECRET",
+        ],
+    )
+    if not refresh_token or not client_id or not client_secret:
+        missing = []
+        if not refresh_token:
+            missing.append("refreshToken")
+        if not client_id:
+            missing.append("clientId")
+        if not client_secret:
+            missing.append("clientSecret")
+        return GoogleAccessTokenResult(
+            access_token="",
+            auth_source="none",
+            fallback_reason=f"missing accessToken or OAuth fields: {', '.join(missing)}",
+            failure_code=f"CONFIG_MISSING_{normalized_provider}_OAUTH",
+            retryable=True,
+        )
+
+    token_endpoint = str(config.get("tokenEndpoint") or "https://oauth2.googleapis.com/token").strip()
+    try:
+        response = _http_form_json(
+            token_endpoint,
+            payload={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": client_id,
+                "client_secret": client_secret,
+            },
+        )
+        if "raw" in response:
+            raise ValueError(f"{normalized_provider}_OAUTH_INVALID_PAYLOAD: non-json response")
+        refreshed_token = str(response.get("access_token") or "").strip()
+        if not refreshed_token:
+            raise ValueError(f"{normalized_provider}_OAUTH_INVALID_RESPONSE: access_token missing")
+        return GoogleAccessTokenResult(
+            access_token=refreshed_token,
+            auth_source=f"oauth-refresh:{refresh_source},{client_id_source},{client_secret_source}",
+        )
+    except HTTPError as exc:
+        return GoogleAccessTokenResult(
+            access_token="",
+            auth_source=f"oauth-refresh:{refresh_source}",
+            fallback_reason=f"Google OAuth token refresh failed: {exc}",
+            failure_code=_http_failure_code(exc, f"{normalized_provider}_OAUTH"),
+            retryable=500 <= getattr(exc, "code", 500) < 600,
+        )
+    except Exception as exc:
+        message = str(exc)
+        invalid = "INVALID_PAYLOAD" in message or "INVALID_RESPONSE" in message
+        return GoogleAccessTokenResult(
+            access_token="",
+            auth_source=f"oauth-refresh:{refresh_source}",
+            fallback_reason=f"Google OAuth token refresh failed: {message}",
+            failure_code=(
+                f"{normalized_provider}_OAUTH_INVALID_PAYLOAD"
+                if "INVALID_PAYLOAD" in message
+                else f"{normalized_provider}_OAUTH_INVALID_RESPONSE"
+                if "INVALID_RESPONSE" in message
+                else _exception_failure_code(exc, f"{normalized_provider}_OAUTH")
+            ),
+            retryable=not invalid,
+        )
+
+
 def _http_json(
     url: str,
     *,
@@ -857,15 +1010,13 @@ class SearchConsoleAdapter(BaseConnectorAdapter):
     def probe(self, ctx: ConnectorContext) -> tuple[ProjectConnection, SourceEvidence]:
         started = time.perf_counter()
         property_name = str(ctx.connection.config.get("property") or _site_host(ctx.intake))
-        access_token, auth_source = _resolve_credential(
-            ctx.connection.config,
-            ["accessToken", "credentialsJson", "serviceAccountJson"],
-            ["SEO_AD_BOT_SEARCH_CONSOLE_ACCESS_TOKEN"],
-        )
+        token_result = _resolve_google_access_token(ctx.connection.config, "SEARCH_CONSOLE")
+        access_token = token_result.access_token
+        auth_source = token_result.auth_source
         site_url = str(ctx.connection.config.get("siteUrl") or ctx.intake.url)
         fallback_reason = None
         failure_code = None
-        retryable = False
+        retryable = token_result.retryable
 
         if not ctx.connection.enabled:
             fallback_reason = "connector disabled"
@@ -878,12 +1029,14 @@ class SearchConsoleAdapter(BaseConnectorAdapter):
                 "queryThemes": keywords,
                 "clickTrend": ctx.connection.config.get("clickTrend", "stable"),
                 "impressions": 1200 + len(keywords) * 80,
+                "metricsComplete": False,
+                "metricsProvenance": "synthetic",
                 "authSource": auth_source,
             }
         elif not access_token:
-            fallback_reason = "missing accessToken"
-            failure_code = "CONFIG_MISSING_ACCESS_TOKEN"
-            status = ConnectorStatus.missing_credentials
+            fallback_reason = token_result.fallback_reason or "missing accessToken"
+            failure_code = token_result.failure_code or "CONFIG_MISSING_ACCESS_TOKEN"
+            status = ConnectorStatus.error if failure_code.startswith("SEARCH_CONSOLE_OAUTH_") else ConnectorStatus.missing_credentials
             keywords = ctx.intake.keywords[:5] or [property_name]
             summary = f"Search Console property {property_name} is configured but lacks credentials."
             details = {
@@ -891,11 +1044,14 @@ class SearchConsoleAdapter(BaseConnectorAdapter):
                 "queryThemes": keywords,
                 "clickTrend": ctx.connection.config.get("clickTrend", "stable"),
                 "impressions": 1200 + len(keywords) * 80,
+                "metricsComplete": False,
+                "metricsProvenance": "synthetic",
                 "authSource": auth_source,
             }
-            retryable = True
+            retryable = bool(retryable or failure_code.startswith("CONFIG_"))
         else:
-            default_endpoint = f"https://searchconsole.googleapis.com/webmasters/v3/sites/{site_url}/searchAnalytics/query"
+            encoded_site_url = quote(site_url, safe="")
+            default_endpoint = f"https://searchconsole.googleapis.com/webmasters/v3/sites/{encoded_site_url}/searchAnalytics/query"
             endpoints = _candidate_endpoints(
                 ctx.connection.config,
                 ["endpoints", "endpoint", "apiEndpoints", "apiEndpoint"],
@@ -924,13 +1080,21 @@ class SearchConsoleAdapter(BaseConnectorAdapter):
                     rows = response.get("rows", [])
                     if not isinstance(rows, list):
                         raise ValueError("SEARCH_CONSOLE_INVALID_PAYLOAD: rows is not a list")
+                    normalized_rows: list[dict[str, Any]] = []
+                    for row in rows[:10]:
+                        if not isinstance(row, dict):
+                            raise ValueError("SEARCH_CONSOLE_INVALID_PAYLOAD: row is not an object")
+                        if not isinstance(row.get("keys", []), list):
+                            raise ValueError("SEARCH_CONSOLE_INVALID_PAYLOAD: keys is not a list")
+                        if "clicks" not in row or "impressions" not in row:
+                            raise ValueError("SEARCH_CONSOLE_INVALID_PAYLOAD: row is missing required metrics")
+                        normalized_rows.append(row)
                     top_queries = [
                         " ".join(str(value) for value in row.get("keys", [])[:2]).strip() or "unknown"
-                        for row in rows[:5]
-                        if isinstance(row, dict)
+                        for row in normalized_rows[:5]
                     ]
-                    clicks = sum(int(row.get("clicks", 0)) for row in rows[:10] if isinstance(row, dict))
-                    impressions = sum(int(row.get("impressions", 0)) for row in rows[:10] if isinstance(row, dict))
+                    clicks = sum(int(float(row["clicks"])) for row in normalized_rows)
+                    impressions = sum(int(float(row["impressions"])) for row in normalized_rows)
                     endpoint_attempts.append({"endpoint": endpoint, "status": "connected"})
                     connected_details = {
                         "property": property_name,
@@ -938,10 +1102,13 @@ class SearchConsoleAdapter(BaseConnectorAdapter):
                         "endpointsConfigured": endpoints,
                         "endpointsTried": [item.get("endpoint") for item in endpoint_attempts],
                         "endpointAttempts": endpoint_attempts,
-                        "queryThemes": top_queries or ctx.intake.keywords[:5] or [property_name],
+                        "queryThemes": top_queries,
                         "clicks": clicks,
                         "impressions": impressions,
                         "rowCount": len(rows),
+                        "metricsComplete": True,
+                        "metricsProvenance": "provider",
+                        "metricWindow": {"startDate": payload["startDate"], "endDate": payload["endDate"]},
                         "authSource": auth_source,
                     }
                     break
@@ -981,7 +1148,7 @@ class SearchConsoleAdapter(BaseConnectorAdapter):
                     last_error_message = message
             if connected_details is not None:
                 status = ConnectorStatus.connected
-                summary = f"Search Console property {property_name} returned query rows."
+                summary = f"Search Console property {property_name} returned {connected_details['rowCount']} query rows."
                 details = connected_details
             else:
                 status = ConnectorStatus.error
@@ -1029,14 +1196,12 @@ class Ga4Adapter(BaseConnectorAdapter):
     def probe(self, ctx: ConnectorContext) -> tuple[ProjectConnection, SourceEvidence]:
         started = time.perf_counter()
         property_id = str(ctx.connection.config.get("propertyId") or ctx.connection.config.get("property") or "")
-        access_token, auth_source = _resolve_credential(
-            ctx.connection.config,
-            ["accessToken", "credentialsJson", "serviceAccountJson"],
-            ["SEO_AD_BOT_GA4_ACCESS_TOKEN"],
-        )
+        token_result = _resolve_google_access_token(ctx.connection.config, "GA4")
+        access_token = token_result.access_token
+        auth_source = token_result.auth_source
         fallback_reason = None
         failure_code = None
-        retryable = False
+        retryable = token_result.retryable
         if not ctx.connection.enabled:
             fallback_reason = "connector disabled"
             status = ConnectorStatus.unavailable
@@ -1047,21 +1212,25 @@ class Ga4Adapter(BaseConnectorAdapter):
                 "sessions": 3400 + len(ctx.intake.keywords) * 120,
                 "conversions": 42 + len(ctx.intake.brand_whitelist),
                 "engagementRate": 0.71,
+                "metricsComplete": False,
+                "metricsProvenance": "synthetic",
                 "authSource": auth_source,
             }
         elif not access_token:
-            fallback_reason = "missing accessToken"
-            failure_code = "CONFIG_MISSING_ACCESS_TOKEN"
-            status = ConnectorStatus.missing_credentials
+            fallback_reason = token_result.fallback_reason or "missing accessToken"
+            failure_code = token_result.failure_code or "CONFIG_MISSING_ACCESS_TOKEN"
+            status = ConnectorStatus.error if failure_code.startswith("GA4_OAUTH_") else ConnectorStatus.missing_credentials
             summary = f"GA4 property {property_id or _site_host(ctx.intake)} is configured but lacks credentials."
             details = {
                 "property": property_id or _site_host(ctx.intake),
                 "sessions": 3400 + len(ctx.intake.keywords) * 120,
                 "conversions": 42 + len(ctx.intake.brand_whitelist),
                 "engagementRate": 0.71,
+                "metricsComplete": False,
+                "metricsProvenance": "synthetic",
                 "authSource": auth_source,
             }
-            retryable = True
+            retryable = bool(retryable or failure_code.startswith("CONFIG_"))
         else:
             default_endpoint = f"https://analyticsdata.googleapis.com/v1beta/properties/{property_id}:runReport"
             endpoints = _candidate_endpoints(
@@ -1101,10 +1270,14 @@ class Ga4Adapter(BaseConnectorAdapter):
                     engagement_rate = 0.0
                     for row in rows[:5]:
                         if not isinstance(row, dict):
-                            continue
+                            raise ValueError("GA4_INVALID_PAYLOAD: row is not an object")
                         metrics = row.get("metricValues", [])
                         if not isinstance(metrics, list):
                             raise ValueError("GA4_INVALID_PAYLOAD: metricValues is not a list")
+                        if len(metrics) < 3:
+                            raise ValueError("GA4_INVALID_PAYLOAD: metricValues is missing required metrics")
+                        if any(not isinstance(metric, dict) or "value" not in metric for metric in metrics[:3]):
+                            raise ValueError("GA4_INVALID_PAYLOAD: metricValues contains an invalid metric")
                         if len(metrics) >= 1:
                             sessions += int(float(metrics[0].get("value", 0)))
                         if len(metrics) >= 2:
@@ -1118,10 +1291,13 @@ class Ga4Adapter(BaseConnectorAdapter):
                         "endpointsConfigured": endpoints,
                         "endpointsTried": [item.get("endpoint") for item in endpoint_attempts],
                         "endpointAttempts": endpoint_attempts,
-                        "sessions": sessions or 3400 + len(ctx.intake.keywords) * 120,
-                        "conversions": conversions or 42 + len(ctx.intake.brand_whitelist),
-                        "engagementRate": round(engagement_rate or 0.71, 2),
+                        "sessions": sessions,
+                        "conversions": conversions,
+                        "engagementRate": round(engagement_rate, 2),
                         "rowCount": len(rows),
+                        "metricsComplete": True,
+                        "metricsProvenance": "provider",
+                        "metricWindow": dict(payload["dateRanges"][0]),
                         "authSource": auth_source,
                     }
                     break
@@ -1161,7 +1337,10 @@ class Ga4Adapter(BaseConnectorAdapter):
                     last_error_message = message
             if connected_details is not None:
                 status = ConnectorStatus.connected
-                summary = f"GA4 property {property_id or _site_host(ctx.intake)} returned baseline rows."
+                summary = (
+                    f"GA4 property {property_id or _site_host(ctx.intake)} "
+                    f"returned {connected_details['rowCount']} baseline rows."
+                )
                 details = connected_details
             else:
                 status = ConnectorStatus.error
@@ -1227,8 +1406,12 @@ class GitHubAdapter(BaseConnectorAdapter):
         fallback_reason = None
         failure_code = None
         retryable = False
-        default_endpoint = f"https://api.github.com/repos/{owner}/{repo}/pulls" if owner and repo else ""
-        endpoints = _candidate_endpoints(ctx.connection.config, ["apiEndpoints", "apiEndpoint"], default_endpoint)
+        default_endpoint = f"https://api.github.com/repos/{owner}/{repo}" if owner and repo else ""
+        endpoints = _candidate_endpoints(
+            ctx.connection.config,
+            ["probeEndpoints", "probeEndpoint", "apiEndpoints", "apiEndpoint"],
+            default_endpoint,
+        )
         details = {
             "repoUrl": repo_url,
             "branch": ctx.connection.config.get("branch", "main"),
@@ -1245,24 +1428,9 @@ class GitHubAdapter(BaseConnectorAdapter):
             fallback_reason = "missing repoUrl/accessToken/owner/repo"
             failure_code = "CONFIG_MISSING_GITHUB"
             status = ConnectorStatus.missing_credentials
-            summary = "No repository credentials are complete enough to create a PR."
-            retryable = True
-        elif not ctx.connection.config.get("headBranch"):
-            fallback_reason = "missing headBranch"
-            failure_code = "CONFIG_MISSING_HEAD_BRANCH"
-            status = ConnectorStatus.missing_credentials
-            summary = "Repository connected, but no source branch was supplied for PR creation."
+            summary = "No repository credentials are complete enough to verify repository access."
             retryable = True
         else:
-            payload = {
-                "title": ctx.connection.config.get("title")
-                or f"SEO-AD AutoPilot release for {ctx.project_id}",
-                "body": ctx.connection.config.get("body")
-                or "Preview-first growth release generated by SEO-AD AutoPilot.",
-                "head": str(ctx.connection.config.get("headBranch")),
-                "base": str(ctx.connection.config.get("baseBranch") or "main"),
-                "draft": bool(ctx.connection.config.get("draft", True)),
-            }
             last_error: Optional[str] = None
             last_failure_code: Optional[str] = None
             for endpoint in endpoints:
@@ -1270,38 +1438,34 @@ class GitHubAdapter(BaseConnectorAdapter):
                 try:
                     response = _http_json(
                         endpoint,
-                        method="POST",
+                        method="GET",
                         headers={str(auth_header or "Authorization"): f"Bearer {access_token}", "Accept": "application/vnd.github+json"},
-                        payload=payload,
                     )
                     if "raw" in response:
                         raise ValueError("GITHUB_INVALID_PAYLOAD: non-json response")
-                    pr_url = str(response.get("html_url") or response.get("url") or "")
-                    pr_number = response.get("number")
-                    strict = bool(get_settings().strict_providers)
-                    if pr_url:
+                    repository_ref = str(response.get("html_url") or response.get("url") or response.get("full_name") or "")
+                    if repository_ref or response.get("id") or response.get("number"):
                         status = ConnectorStatus.connected
-                        summary = f"Created GitHub pull request {pr_number or ''} for {owner}/{repo}."
+                        summary = f"GitHub repository access verified for {owner}/{repo}."
                         details = {
                             **details,
                             "endpoint": endpoint,
                             "owner": owner,
                             "repo": repo,
-                            "branch": payload["head"],
-                            "base": payload["base"],
-                            "prUrl": pr_url,
-                            "prNumber": pr_number,
+                            "repositoryRef": repository_ref or f"{owner}/{repo}",
+                            "permissions": response.get("permissions") if isinstance(response.get("permissions"), dict) else {},
+                            "writeProbeDeferred": True,
                             "authSource": auth_source,
                             "authHeader": auth_header,
                         }
                         last_error = None
                         last_failure_code = None
                         break
-                    status = ConnectorStatus.error if strict else ConnectorStatus.synthetic
-                    fallback_reason = "GitHub API returned no PR URL."
+                    status = ConnectorStatus.error
+                    fallback_reason = "GitHub API returned no repository identity."
                     failure_code = "GITHUB_INVALID_RESPONSE"
-                    retryable = True
-                    summary = "GitHub API accepted the request but returned no PR URL."
+                    retryable = False
+                    summary = "GitHub repository probe returned an invalid response."
                     details = {
                         **details,
                         "endpoint": endpoint,
@@ -1686,7 +1850,7 @@ class AdNetworkAdapter(BaseConnectorAdapter):
                         timeout=timeout_seconds,
                     )
                     provider_account = str(response.get("accountId") or account_id)
-                    inventory_status = str(response.get("inventoryStatus") or "ready")
+                    inventory_status = str(response.get("inventoryStatus") or "unknown")
                     response_family = self._normalize_provider_family(
                         response.get("providerFamily") or response.get("network") or response.get("provider")
                     )
@@ -1729,7 +1893,7 @@ class AdNetworkAdapter(BaseConnectorAdapter):
                         or response.get("publisherRevenueDaily")
                         or 0.0
                     )
-                    settlement_window = str(response.get("settlementWindow") or response.get("settlementCadence") or "T+7 estimated")
+                    settlement_window = str(response.get("settlementWindow") or response.get("settlementCadence") or "")
                     settlement_currency = str(response.get("currency") or response.get("settlementCurrency") or settlement_currency).upper()
                     policy_tier = str(response.get("policyTier") or response.get("monetizationPolicy") or policy_tier)
                     payout_threshold = float(
@@ -1740,21 +1904,37 @@ class AdNetworkAdapter(BaseConnectorAdapter):
                     )
                     geo_coverage = _coerce_list(response.get("geoCoverage") or response.get("regions") or response.get("countries"))
                     provider_program = str(response.get("providerProgram") or response.get("program") or response.get("accountProgram") or "")
-                    if not impressions:
-                        impressions = 9400
-                    if clicks <= 0:
-                        clicks = max(1, int(impressions * 0.011))
-                    if fill_rate <= 0:
-                        fill_rate = 0.62
-                    if rpm <= 0:
-                        rpm = 4.8
-                    if estimated_daily <= 0:
-                        estimated_daily = round((impressions / 1000.0) * rpm * fill_rate, 2)
-                    if settled_daily <= 0:
-                        settled_daily = round(estimated_daily * 0.91, 2)
+                    metric_fields = {
+                        "impressions": ["impressions", "dailyImpressions", "adImpressions", "pageviews"],
+                        "fillRate": ["fillRate", "fill_rate", "matchedRate"],
+                        "rpm": ["rpm", "eCPM", "ecpm", "pageRpm", "sessionRpm"],
+                        "estimatedRevenueDaily": [
+                            "estimatedRevenueDaily",
+                            "dailyRevenue",
+                            "grossRevenueDaily",
+                            "estimatedEarnings",
+                        ],
+                        "settledRevenueDaily": [
+                            "settledRevenueDaily",
+                            "netRevenueDaily",
+                            "settledDailyRevenue",
+                            "earnings",
+                            "publisherRevenueDaily",
+                        ],
+                    }
+                    missing_metric_fields = [
+                        name
+                        for name, aliases in metric_fields.items()
+                        if not any(alias in response and response.get(alias) is not None for alias in aliases)
+                    ]
+                    metrics_complete = not missing_metric_fields
                     ctr = round(clicks / max(impressions, 1), 4)
                     status = ConnectorStatus.connected
-                    summary = f"{provider_name} account {provider_account} is connected."
+                    summary = (
+                        f"{provider_name} account {provider_account} is connected."
+                        if metrics_complete
+                        else f"{provider_name} account {provider_account} is connected, but reporting metrics are incomplete."
+                    )
                     details = {
                         **details,
                         "endpoint": endpoint,
@@ -1773,6 +1953,9 @@ class AdNetworkAdapter(BaseConnectorAdapter):
                         "payoutThreshold": round(payout_threshold, 2),
                         "geoCoverage": geo_coverage,
                         "providerProgram": provider_program,
+                        "metricsComplete": metrics_complete,
+                        "missingMetricFields": missing_metric_fields,
+                        "metricsProvenance": "provider",
                         "impressions": impressions,
                         "clicks": clicks,
                         "ctr": ctr,

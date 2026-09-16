@@ -149,6 +149,7 @@ from .models import (
     StyleExtractionReport,
     SkillRegressionReport,
     TechnicalSeoPatchReport,
+    SeoConversionAuditReport,
     VisualRegressionReport,
     VisualRegressionHealthReport,
     VisualFarmStatusReport,
@@ -911,6 +912,17 @@ def create_app(service: Optional[WorkflowService] = None) -> FastAPI:
     def project_technical_seo_patch(project_id: str) -> TechnicalSeoPatchReport:
         try:
             return svc().build_technical_seo_patch_report(project_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get(
+        "/api/projects/{project_id}/seo-conversion-audit",
+        response_model=SeoConversionAuditReport,
+        summary="Read the evidence-backed technical SEO and conversion audit",
+    )
+    def project_seo_conversion_audit(project_id: str) -> SeoConversionAuditReport:
+        try:
+            return svc().build_seo_conversion_audit_report(project_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 

@@ -307,6 +307,74 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
+## Visual Farm Acceptance
+
+Install the pinned Chromium runtime into the project workspace, then run a real
+two-page screenshot gate. Both target hosts must be listed in
+`SEO_AD_BOT_VISUAL_FARM_ALLOWED_HOSTS`.
+
+```bash
+make visual-farm-browser-install
+SEO_AD_BOT_VISUAL_FARM_ALLOWED_HOSTS=www.example.com,preview.example.com \
+SEO_AD_BOT_VISUAL_FARM_SMOKE_BASELINE_URL=https://www.example.com/page \
+SEO_AD_BOT_VISUAL_FARM_SMOKE_PREVIEW_URL=https://preview.example.com/page \
+SEO_AD_BOT_VISUAL_FARM_SMOKE_MAX_DIFF_PERCENT=2 \
+make visual-farm-smoke
+```
+
+The command stores validated PNG files and a JSON report under
+`var/visual-farm/smoke/`. Missing targets, a missing browser, capture failures,
+invalid PNG artifacts, and threshold violations all return a non-zero exit code.
+
+## Runtime Edge Deployment
+
+The bundled runtime edge accepts versioned route snapshots from the control
+plane, persists them under `var/runtime-edge/`, and keeps the previous snapshot
+available for rollback. Configure the same secret on both services:
+
+```bash
+SEO_AD_BOT_RUNTIME_EDGE_GATEWAY_URL=http://runtime-edge:8080/deploy
+SEO_AD_BOT_RUNTIME_EDGE_GATEWAY_ACCESS_TOKEN=replace-me
+SEO_AD_BOT_EDGE_API_KEY=replace-me
+```
+
+Production can require every published host to resolve and present a valid TLS
+certificate before a new snapshot is activated:
+
+```bash
+SEO_AD_BOT_EDGE_VERIFY_DNS_TLS=true
+SEO_AD_BOT_EDGE_EXPECTED_PUBLIC_IPS=203.0.113.10,2001:db8::10
+```
+
+The protected runtime endpoints are `POST /deploy`, `POST /rollback`,
+`GET /deployments`, `GET /deployments/{id}`, and `GET /readyz`. Project-scoped
+publishes merge into the active multi-site snapshot; requests are routed by Host
+and longest `publicPath`, with that prefix removed before reverse proxying.
+
+## Stripe Connect Settlement
+
+The billing control plane can execute official Stripe Connect Transfers without
+an intermediary HTTP gateway. Enable it explicitly and provide a restricted
+secret through the production secret manager:
+
+```bash
+SEO_AD_BOT_BILLING_GATEWAY_STRIPE_ADAPTER=stripe_sdk
+SEO_AD_BOT_BILLING_GATEWAY_STRIPE_SECRET_KEY=sk_live_...
+```
+
+Live execution requires `destinationType=connected_account`, a connected account
+in `destinationRef`, and a stable `metadata.idempotencyKey`. SDK errors are
+recorded as failed or blocked settlement executions and never fall back to a
+synthetic success. The default `http` adapter remains available for other
+provider gateways.
+
+## Maintenance status
+
+2026-09-16: CI checks are now blocking for lint, unit/integration/smoke tests,
+Docker builds, and dependency auditing. The maintained baseline is the
+`chore/green-baseline` branch, which is ready to merge into `main` after the
+required checks pass.
+
 ## Roadmap
 
 - [ ] Production-grade Playwright crawling service
@@ -315,9 +383,9 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 - [ ] OpenTelemetry + Sentry observability
 - [ ] Multi-model LLM routing gateway
 - [ ] Visual regression farm production deployment
-- [ ] Real ad network settlement integration
+- [ ] Real ad network settlement integration (Stripe Connect SDK complete; additional providers pending)
 - [ ] A/B experiment framework
-- [ ] Multi-site edge deployment orchestration
+- [x] Multi-site edge deployment orchestration (production DNS/TLS cutover still environment-specific)
 
 ## License
 

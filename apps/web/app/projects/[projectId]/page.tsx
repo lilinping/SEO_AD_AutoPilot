@@ -12,6 +12,7 @@ import { ProjectOperations } from "@/components/ProjectOperations";
 import { ProjectConnectorRefreshAction } from "@/components/ProjectConnectorRefreshAction";
 import { ProjectCruiseToggleAction } from "@/components/ProjectCruiseToggleAction";
 import { formatNumber } from "@/lib/format";
+import { getServerI18n } from "@/lib/i18n/server";
 
 function stringifyAuditPayload(payload: unknown): string {
   if (payload == null) {
@@ -30,9 +31,9 @@ function stringifyAuditPayload(payload: unknown): string {
   }
 }
 
-function formatAuditTime(value: unknown): string {
+function formatAuditTime(value: unknown, locale: "zh" | "en"): string {
   if (value instanceof Date || typeof value === "string") {
-    return formatDateTime(value);
+    return formatDateTime(value, locale);
   }
   return "n/a";
 }
@@ -75,6 +76,7 @@ export default async function ProjectPage({
   params: { projectId: string };
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
+  const { locale, t } = getServerI18n();
   const focusTaskIdRaw = searchParams?.taskId;
   const focusArtifactRefRaw = searchParams?.artifactRef;
   const focusTaskId = Array.isArray(focusTaskIdRaw) ? focusTaskIdRaw[0] ?? "" : focusTaskIdRaw ?? "";
@@ -130,6 +132,7 @@ export default async function ProjectPage({
   const adAudit = detail.adAudit;
   const technicalSeo = detail.technicalSeo;
   const technicalSeoPatch = detail.technicalSeoPatch;
+  const seoConversionAudit = detail.seoConversionAudit;
   const experimentAssignment = workflow.experimentAssignment;
   const localizationAssignment = workflow.localizationAssignment;
   const runtimeRoute = workflow.runtimeRoute;
@@ -184,10 +187,11 @@ export default async function ProjectPage({
   }, {});
   const auditActionTop = Object.entries(auditActionCounts).sort((a, b) => b[1] - a[1])[0] ?? null;
   const latestAudit = detail.audits[0] ?? null;
+  const verifiedRollbackReady = Boolean(workflow.deployment?.rollbackReady && workflow.rollbackBundle);
   return (
     <div className="page">
       <section className="hero">
-        <div className="eyebrow">Project detail</div>
+        <div className="eyebrow">{t("project_detail.title")}</div>
         <div className="project-head">
           <div className="project-title">
             <div>
@@ -199,92 +203,146 @@ export default async function ProjectPage({
           <div className="project-meta">
             <StatusPill tone="accent">{project.siteClass}</StatusPill>
             <StatusPill tone={project.riskScore >= 80 ? "danger" : project.riskScore >= 60 ? "warn" : "good"}>
-              risk {project.riskScore}
+              {t("project_detail.risk")} {project.riskScore}
             </StatusPill>
-            <StatusPill tone="neutral">{project.deploymentMode ?? "preview only"}</StatusPill>
+            <StatusPill tone="neutral">{project.deploymentMode ?? t("project_detail.preview_only")}</StatusPill>
             <StatusPill tone={connectionTone(state.connectionHealth)}>{state.connectionHealth}</StatusPill>
           </div>
         </div>
         <div className="stat-grid" style={{ marginTop: 16 }}>
-          <StatCard label="Real connectors" value={formatNumber(connectionEvidenceRealCount)} caption="project connectors in real mode" accent />
-          <StatCard label="Fallback connectors" value={formatNumber(connectionEvidenceFallbackCount)} caption="project connectors still on fallback" />
-          <StatCard label="Strict-ready" value={formatNumber(connectionEvidenceStrictEligibleCount)} caption="connectors eligible for strict mode" />
-          <StatCard label="Real writeback" value={formatNumber(deploymentRealWritebackCount)} caption="deployments with provider artifact evidence" />
-          <StatCard label="Verified patches" value={formatNumber(deploymentVerifiedCount)} caption="deployments with pre/post verification" />
-          <StatCard label="Market sources" value={`${marketEvidenceProviders.strictReadyCount}/${marketEvidenceProviders.providerCount}`} caption="trend/news/qa strict-ready providers" />
-          <StatCard label="Latest run" value={latestRun?.runId ?? "n/a"} caption={latestRun ? `${latestRun.status} · ${latestRun.trigger}` : "no run history"} />
+          <StatCard
+            label={t("project_detail.real_evidence")}
+            value={`${connectionEvidenceRealCount}/${connectionEvidence.entries.length}`}
+            caption={t("project_detail.real_evidence_caption")}
+            accent
+          />
+          <StatCard
+            label={t("project_detail.approval")}
+            value={workflow.approvalRequest.status}
+            caption={workflow.approvalRequest.decisionHint}
+          />
+          <StatCard
+            label={t("project_detail.release")}
+            value={workflow.deployment?.status ?? t("project_detail.not_scheduled")}
+            caption={workflow.deployment?.mode ?? workflow.plan.deploymentMode}
+          />
+          <StatCard
+            label={t("project_detail.rollback")}
+            value={verifiedRollbackReady ? t("project_detail.ready") : t("project_detail.pending")}
+            caption={workflow.rollbackBundle?.rollbackId ?? t("project_detail.no_rollback_bundle")}
+          />
         </div>
         {connectionEvidenceTop || deploymentLatest ? (
           <div className="alert-box" style={{ marginTop: 12 }}>
             {connectionEvidenceTop ? (
               <>
-                Top connector: {connectionEvidenceTop.provider} · {connectionEvidenceTop.providerMode} · {connectionEvidenceTop.recentEvidenceLabel ?? "n/a"}
+                {t("project_detail.top_connector")}: {connectionEvidenceTop.provider} · {connectionEvidenceTop.providerMode} · {connectionEvidenceTop.recentEvidenceLabel ?? "n/a"}
               </>
             ) : null}
             {connectionEvidenceTop && deploymentLatest ? " · " : null}
             {deploymentLatest ? (
               <>
-                Latest deploy: {deploymentLatest.deployment.deploymentId} · {deploymentLatest.deployment.mode} · {deploymentLatest.deployment.status}
+                {t("project_detail.latest_deploy")}: {deploymentLatest.deployment.deploymentId} · {deploymentLatest.deployment.mode} · {deploymentLatest.deployment.status}
               </>
             ) : null}
           </div>
         ) : null}
         {focusTaskId || focusArtifactRef ? (
           <div className="alert-box" style={{ marginTop: 12 }}>
-            Focus context
+            {t("project_detail.focus_context")}
             {focusTaskId ? ` · taskId=${focusTaskId}` : ""}
             {focusArtifactRef ? ` · artifactRef=${focusArtifactRef}` : ""}
           </div>
         ) : null}
         <div className="project-foot" style={{ marginTop: 12 }}>
-          <span>Jump to</span>
+          <span>{t("project_detail.advanced_operations")}</span>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <a href="#connections">connections</a>
-            <a href="#deployment">deployment</a>
-            <a href="#billing">billing</a>
-            <a href="#runs">runs</a>
-            <a href="#audit">audit</a>
+            <a href="#sources">{t("project_detail.source_health")}</a>
+            <a href="#opportunities">{t("project_detail.opportunities")}</a>
+            <a href="#billing">{t("project_detail.billing")}</a>
+            <a href="#runs">{t("project_detail.runs")}</a>
+            <a href="#audit">{t("project_detail.audit")}</a>
           </div>
         </div>
       </section>
 
+      <section className="panel project-flow-panel" aria-labelledby="project-flow-title">
+        <div className="section-heading">
+          <div>
+            <div className="eyebrow">{t("project_detail.execution_workspace")}</div>
+            <h2 id="project-flow-title">{t("project_detail.execution_title")}</h2>
+          </div>
+          <p>{t("project_detail.execution_description")}</p>
+        </div>
+        <nav className="project-flow-grid" aria-label="Project execution stages">
+          <a className="project-flow-step" href="#preview">
+            <span className="project-flow-index">01</span>
+            <strong>{t("project_detail.preview")}</strong>
+            <span>{workflow.preview.previewId}</span>
+            <StatusPill tone="good">{t("project_detail.ready")}</StatusPill>
+          </a>
+          <a className="project-flow-step" href="#approval">
+            <span className="project-flow-index">02</span>
+            <strong>{t("project_detail.approval")}</strong>
+            <span>{t("project_detail.risk")} {workflow.plan.riskScore}</span>
+            <StatusPill tone={toneForStatus(workflow.approvalRequest.status)}>{workflow.approvalRequest.status}</StatusPill>
+          </a>
+          <a className="project-flow-step" href="#release">
+            <span className="project-flow-index">03</span>
+            <strong>{t("project_detail.release")}</strong>
+            <span>{workflow.deployment?.mode ?? workflow.plan.deploymentMode}</span>
+            <StatusPill tone={toneForStatus(workflow.deployment?.status ?? "not scheduled")}>
+              {workflow.deployment?.status ?? t("project_detail.not_scheduled")}
+            </StatusPill>
+          </a>
+          <a className="project-flow-step" href="#monitoring">
+            <span className="project-flow-index">04</span>
+            <strong>{t("project_detail.monitor_rollback")}</strong>
+            <span>{monitorRuns.length} {t("project_detail.monitor_runs")}</span>
+            <StatusPill tone={verifiedRollbackReady ? "good" : monitorFailedRuns.length ? "danger" : "neutral"}>
+              {verifiedRollbackReady ? t("project_detail.rollback_ready") : latestMonitorRun?.status ?? t("project_detail.not_started")}
+            </StatusPill>
+          </a>
+        </nav>
+      </section>
+
       <div className="project-layout">
         <div className="detail-stack">
-          <section className="panel" id="connections">
+          <section className="panel" id="profile">
             <div className="section-heading">
               <div>
-                <div className="eyebrow">Profile</div>
-                <h2>Site profile</h2>
+                <div className="eyebrow">{t("project_detail.profile")}</div>
+                <h2>{t("project_detail.site_profile")}</h2>
               </div>
-              <p>{formatDateTime(project.updatedAt)}</p>
+              <p>{formatDateTime(project.updatedAt, locale)}</p>
             </div>
             <div className="stack">
               <div className="metric-row">
-                <span>Brand voice</span>
+                <span>{t("project_detail.brand_voice")}</span>
                 <strong>{workflow.siteProfile.brandVoice}</strong>
               </div>
               <div className="metric-row">
-                <span>Pages</span>
+                <span>{t("project_detail.pages")}</span>
                 <strong>{workflow.siteProfile.pageCountEstimate}</strong>
               </div>
               <div className="metric-row">
-                <span>Trust signals</span>
+                <span>{t("project_detail.trust_signals")}</span>
                 <strong>{workflow.siteProfile.trustSignals.join(" · ")}</strong>
               </div>
               <div className="metric-row">
-                <span>Auto cruise</span>
-                <strong>{state.autoCruiseEnabled ? `on · ${state.syncIntervalMinutes}m` : "off"}</strong>
+                <span>{t("project_detail.auto_cruise")}</span>
+                <strong>{state.autoCruiseEnabled ? `${t("project_detail.on")} · ${state.syncIntervalMinutes}m` : t("project_detail.off")}</strong>
               </div>
               <div className="metric-row">
-                <span>Cruise state</span>
+                <span>{t("project_detail.cruise_state")}</span>
                 <strong>
-                  {cruiseHealth.dueNow ? "due now" : "scheduled"}
-                  {cruiseHealth.overdue ? " · overdue" : ""}
+                  {cruiseHealth.dueNow ? t("project_detail.due_now") : t("project_detail.scheduled")}
+                  {cruiseHealth.overdue ? ` · ${t("project_detail.overdue")}` : ""}
                 </strong>
               </div>
               <div className="metric-row">
-                <span>Cruise next run</span>
-                <strong>{cruiseHealth.nextSyncAt ? formatDateTime(cruiseHealth.nextSyncAt) : "not scheduled"}</strong>
+                <span>{t("project_detail.cruise_next_run")}</span>
+                <strong>{cruiseHealth.nextSyncAt ? formatDateTime(cruiseHealth.nextSyncAt, locale) : t("project_detail.not_scheduled")}</strong>
               </div>
               <ProjectCruiseToggleAction
                 projectId={project.projectId}
@@ -293,56 +351,56 @@ export default async function ProjectPage({
                 connections={detail.connections}
               />
               <div className="metric-row">
-                <span>Last sync</span>
-                <strong>{state.lastSyncAt ? formatDateTime(state.lastSyncAt) : "never"}</strong>
+                <span>{t("project_detail.last_sync")}</span>
+                <strong>{state.lastSyncAt ? formatDateTime(state.lastSyncAt, locale) : t("project_detail.never")}</strong>
               </div>
               <div className="metric-row">
-                <span>Next sync</span>
-                <strong>{state.nextSyncAt ? formatDateTime(state.nextSyncAt) : "not scheduled"}</strong>
+                <span>{t("project_detail.next_sync")}</span>
+                <strong>{state.nextSyncAt ? formatDateTime(state.nextSyncAt, locale) : t("project_detail.not_scheduled")}</strong>
               </div>
             </div>
           </section>
 
-          <section className="panel" id="deployment">
+          <section className="panel" id="sources">
             <div className="section-heading">
               <div>
-                <div className="eyebrow">Connections</div>
-                <h2>Source health</h2>
+                <div className="eyebrow">{t("project_detail.connections")}</div>
+                <h2>{t("project_detail.source_health")}</h2>
               </div>
               <p>{workflow.ingestionReport?.status ?? "synthetic"}</p>
             </div>
             <div className="stat-grid">
-              <StatCard label="Real" value={formatNumber(connectionEvidenceRealCount)} caption="project connectors in real mode" accent />
-              <StatCard label="Fallback" value={formatNumber(connectionEvidenceFallbackCount)} caption="project connectors in fallback mode" />
-              <StatCard label="Unconfigured" value={formatNumber(connectionEvidenceUnconfiguredCount)} caption="project connectors without config" />
-              <StatCard label="Strict-ready" value={formatNumber(connectionEvidenceStrictEligibleCount)} caption="connectors eligible for strict mode" />
+              <StatCard label={t("project_detail.real")} value={formatNumber(connectionEvidenceRealCount)} caption={t("project_detail.real_evidence_caption")} accent />
+              <StatCard label={t("project_detail.fallback")} value={formatNumber(connectionEvidenceFallbackCount)} caption={t("project_detail.fallback")} />
+              <StatCard label={t("project_detail.unconfigured")} value={formatNumber(connectionEvidenceUnconfiguredCount)} caption={t("project_detail.unconfigured")} />
+              <StatCard label={t("project_detail.strict_ready")} value={formatNumber(connectionEvidenceStrictEligibleCount)} caption={t("project_detail.strict_ready")} />
             </div>
             {connectionEvidenceTop ? (
               <div className="audit-meta" style={{ marginTop: 12 }}>
                 Top evidence: {connectionEvidenceTop.provider} · {connectionEvidenceTop.providerMode} ·{" "}
                 {connectionEvidenceTop.recentEvidenceLabel ?? "n/a"} ·{" "}
-                {connectionEvidenceTop.recentEvidenceAt ? formatDateTime(connectionEvidenceTop.recentEvidenceAt) : "n/a"}
+                {connectionEvidenceTop.recentEvidenceAt ? formatDateTime(connectionEvidenceTop.recentEvidenceAt, locale) : "n/a"}
               </div>
             ) : null}
             <div className="suite-grid">
               <article className="suite-card">
                 <div className="metric-row">
-                  <span>Project health</span>
+                  <span>{t("project_detail.project_health")}</span>
                   <strong>{projectConnectorsHealth.connectionHealth}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Real/Fallback/Unconfigured</span>
+                  <span>{t("project_detail.connection_mix")}</span>
                   <strong>
                     {projectConnectorsHealth.realConnectionCount}/{projectConnectorsHealth.fallbackConnectionCount}/{projectConnectorsHealth.unconfiguredConnectionCount}
                   </strong>
                 </div>
                 <div className="metric-row">
-                  <span>Last real read evidence</span>
-                  <strong>{projectConnectorsHealth.readRealLastEvidenceAt ? formatDateTime(projectConnectorsHealth.readRealLastEvidenceAt) : "n/a"}</strong>
+                  <span>{t("project_detail.last_real_read")}</span>
+                  <strong>{projectConnectorsHealth.readRealLastEvidenceAt ? formatDateTime(projectConnectorsHealth.readRealLastEvidenceAt, locale) : "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Last real write evidence</span>
-                  <strong>{projectConnectorsHealth.writeRealLastEvidenceAt ? formatDateTime(projectConnectorsHealth.writeRealLastEvidenceAt) : "n/a"}</strong>
+                  <span>{t("project_detail.last_real_write")}</span>
+                  <strong>{projectConnectorsHealth.writeRealLastEvidenceAt ? formatDateTime(projectConnectorsHealth.writeRealLastEvidenceAt, locale) : "n/a"}</strong>
                 </div>
               </article>
               {connectionEvidence.entries.map((connection) => (
@@ -361,11 +419,11 @@ export default async function ProjectPage({
                     <li>Mode: {connection.providerMode}</li>
                     <li>Strict-ready: {connection.strictEligible ? "yes" : "no"}</li>
                     <li>Auth source: {connection.authSource ?? "n/a"}</li>
-                    <li>Last success: {connection.lastSuccessAt ? formatDateTime(connection.lastSuccessAt) : "n/a"}</li>
-                    <li>Last error: {connection.lastErrorAt ? formatDateTime(connection.lastErrorAt) : "n/a"}</li>
+                    <li>Last success: {connection.lastSuccessAt ? formatDateTime(connection.lastSuccessAt, locale) : "n/a"}</li>
+                    <li>Last error: {connection.lastErrorAt ? formatDateTime(connection.lastErrorAt, locale) : "n/a"}</li>
                     <li>Recent evidence: {connection.recentEvidenceLabel ?? "n/a"}</li>
                     <li>Evidence ref: {connection.recentEvidenceRef ?? "n/a"}</li>
-                    <li>Evidence time: {connection.recentEvidenceAt ? formatDateTime(connection.recentEvidenceAt) : "n/a"}</li>
+                    <li>Evidence time: {connection.recentEvidenceAt ? formatDateTime(connection.recentEvidenceAt, locale) : "n/a"}</li>
                     <li>Fallback: {fallbackReason}</li>
                     <li>Latency: {latencyMs != null ? `${latencyMs}ms` : "n/a"}</li>
                   </ul>
@@ -379,15 +437,15 @@ export default async function ProjectPage({
             {workflow.ingestionReport ? (
               <div className="stack" style={{ marginTop: 14 }}>
                 <div className="metric-row">
-                  <span>Ingestion report</span>
+                  <span>{t("project_detail.ingestion_report")}</span>
                   <strong>{workflow.ingestionReport.reportId}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Evidence</span>
+                  <span>{t("project_detail.evidence")}</span>
                   <strong>{workflow.ingestionReport.evidence.length} sources</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Notes</span>
+                  <span>{t("project_detail.notes")}</span>
                   <strong>{workflow.ingestionReport.notes.join(" · ") || "None"}</strong>
                 </div>
               </div>
@@ -400,8 +458,8 @@ export default async function ProjectPage({
           <section className="panel" id="runs">
             <div className="section-heading">
               <div>
-                <div className="eyebrow">Connector history</div>
-                <h2>Recent probe and refresh events</h2>
+                <div className="eyebrow">{t("project_detail.connector_history")}</div>
+                <h2>{t("project_detail.recent_connector_events")}</h2>
               </div>
               <p>{connectionHistory.entries.length} recent events</p>
             </div>
@@ -414,27 +472,27 @@ export default async function ProjectPage({
                   </div>
                   <p>{entry.summary || entry.action}</p>
                   <div className="metric-row">
-                    <span>Action</span>
+                    <span>{t("project_detail.action")}</span>
                     <strong>{entry.action}</strong>
                   </div>
                   <div className="metric-row">
-                    <span>Created</span>
-                    <strong>{formatDateTime(entry.createdAt)}</strong>
+                    <span>{t("project_detail.created")}</span>
+                    <strong>{formatDateTime(entry.createdAt, locale)}</strong>
                   </div>
                   <div className="metric-row">
-                    <span>Auth source</span>
+                    <span>{t("project_detail.auth_source")}</span>
                     <strong>{entry.authSource ?? "none"}</strong>
                   </div>
                   <div className="metric-row">
-                    <span>Failure</span>
+                    <span>{t("project_detail.failure")}</span>
                     <strong>{entry.failureCode ?? "none"}</strong>
                   </div>
                   <div className="metric-row">
-                    <span>Fallback</span>
+                    <span>{t("project_detail.fallback_reason")}</span>
                     <strong>{entry.fallbackReason ?? "none"}</strong>
                   </div>
                   <div className="metric-row">
-                    <span>Latency</span>
+                    <span>{t("project_detail.latency")}</span>
                     <strong>{entry.latencyMs != null ? `${entry.latencyMs}ms` : "n/a"}</strong>
                   </div>
                 </article>
@@ -445,8 +503,8 @@ export default async function ProjectPage({
           <section className="panel" id="billing">
             <div className="section-heading">
               <div>
-                <div className="eyebrow">Billing</div>
-                <h2>Settlement history</h2>
+                <div className="eyebrow">{t("project_detail.billing")}</div>
+                <h2>{t("project_detail.settlement_history")}</h2>
               </div>
               <p>
                 Project-level settlement history with direct links into the workspace billing filter.
@@ -459,11 +517,11 @@ export default async function ProjectPage({
               <StatCard label="Due total" value={formatNumber(billingSettlementDueTotal)} caption="sum of due cents in history" />
             </div>
             <div className="project-foot" style={{ marginTop: 12 }}>
-              <span>Workspace view</span>
+              <span>{t("project_detail.workspace_view")}</span>
               <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                <Link href={`/settings?billingProjectId=${encodeURIComponent(params.projectId)}#billing`}>Open billing filter</Link>
-                <Link href={`/monitor?billingProjectId=${encodeURIComponent(params.projectId)}#billing-history`}>Monitor replay</Link>
-                <Link href={`/acceptance?billingProjectId=${encodeURIComponent(params.projectId)}#billing-history`}>Acceptance replay</Link>
+                <Link href={`/settings?billingProjectId=${encodeURIComponent(params.projectId)}#billing`}>{t("project_detail.open_billing_filter")}</Link>
+                <Link href={`/monitor?billingProjectId=${encodeURIComponent(params.projectId)}#billing-history`}>{t("project_detail.monitor_replay")}</Link>
+                <Link href={`/acceptance?billingProjectId=${encodeURIComponent(params.projectId)}#billing-history`}>{t("project_detail.acceptance_replay")}</Link>
               </div>
             </div>
             {billingSettlementLatest ? (
@@ -478,7 +536,7 @@ export default async function ProjectPage({
             ) : null}
             <div className="stack" style={{ marginTop: 12 }}>
               {billingSettlementHistory.entries.length === 0 ? (
-                <div className="project-copy">No settlement executions recorded for this project.</div>
+                <div className="project-copy">{t("project_detail.no_settlements")}</div>
               ) : (
                 billingSettlementHistory.entries.map((entry) => (
                   <article className="audit-card" key={entry.auditId}>
@@ -490,70 +548,70 @@ export default async function ProjectPage({
                     </div>
                     <p>{entry.message ?? entry.memo ?? "Settlement execution."}</p>
                     <div className="metric-row">
-                      <span>Created</span>
-                      <strong>{formatDateTime(entry.createdAt)}</strong>
+                      <span>{t("project_detail.created")}</span>
+                      <strong>{formatDateTime(entry.createdAt, locale)}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Gateway provider</span>
+                      <span>{t("project_detail.gateway_provider")}</span>
                       <strong>{entry.gatewayProviderName ?? "n/a"}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Gateway route</span>
+                      <span>{t("project_detail.gateway_route")}</span>
                       <strong>{entry.gatewayRouteProviderName ?? "n/a"}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Route reason</span>
+                      <span>{t("project_detail.route_reason")}</span>
                       <strong>{entry.gatewayRouteReason ?? "n/a"}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Request</span>
+                      <span>{t("project_detail.request")}</span>
                       <strong>
                         {entry.requestMethod ?? "POST"} {entry.requestPath ?? "/api/billing/settlement/execute"}
                       </strong>
                     </div>
                     <div className="metric-row">
-                      <span>Due</span>
+                      <span>{t("project_detail.due")}</span>
                       <strong>{entry.dueCents} cents</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Ready</span>
+                      <span>{t("project_detail.ready")}</span>
                       <strong>{entry.settlementReady ? "yes" : "no"}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Gateway</span>
+                      <span>{t("project_detail.gateway")}</span>
                       <strong>{entry.gatewayReady ? "ready" : "partial"}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Route</span>
+                      <span>{t("project_detail.route")}</span>
                       <strong>
                         {entry.gatewayRouteProviderName ?? "n/a"} · priority {entry.gatewayRoutePriority ?? "n/a"} · {entry.gatewayRouteReady ? "ready" : "fallback"}
                       </strong>
                     </div>
                     <div className="metric-row">
-                      <span>Reason</span>
+                      <span>{t("project_detail.reason")}</span>
                       <strong>{entry.gatewayRouteReason ?? "n/a"}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Failure</span>
+                      <span>{t("project_detail.failure")}</span>
                       <strong>{entry.failureCode ?? "none"}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Retryable</span>
+                      <span>{t("project_detail.retryable")}</span>
                       <strong>{entry.retryable ? "yes" : "no"}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Mode</span>
+                      <span>{t("project_detail.mode")}</span>
                       <strong>{entry.dryRun ? "dry-run" : "live"}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Project</span>
+                      <span>{t("project_detail.project")}</span>
                       <strong>{entry.projectName ?? entry.projectId ?? params.projectId}</strong>
                     </div>
                     <div className="project-foot">
-                      <span>Workspace replay</span>
+                      <span>{t("project_detail.workspace_replay")}</span>
                       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                        <Link href={`/monitor?billingProjectId=${encodeURIComponent(params.projectId)}#billing-history`}>Monitor</Link>
-                        <Link href={`/acceptance?billingProjectId=${encodeURIComponent(params.projectId)}#billing-history`}>Acceptance</Link>
+                        <Link href={`/monitor?billingProjectId=${encodeURIComponent(params.projectId)}#billing-history`}>{t("project_detail.monitor")}</Link>
+                        <Link href={`/acceptance?billingProjectId=${encodeURIComponent(params.projectId)}#billing-history`}>{t("project_detail.acceptance")}</Link>
                       </div>
                     </div>
                   </article>
@@ -566,8 +624,8 @@ export default async function ProjectPage({
             <section className="panel">
               <div className="section-heading">
                 <div>
-                  <div className="eyebrow">Market evidence</div>
-                  <h2>Trend, news, and QA sources</h2>
+                  <div className="eyebrow">{t("project_detail.market_evidence")}</div>
+                  <h2>{t("project_detail.market_sources")}</h2>
                 </div>
                 <p>{marketEvidence.notes.join(" · ")}</p>
               </div>
@@ -579,13 +637,13 @@ export default async function ProjectPage({
               </div>
               <div className="audit-meta" style={{ marginBottom: 14 }}>
                 Strict mode: {marketEvidenceHealth.strictProvidersEnabled ? "enabled" : "disabled"} · Latest fetched:{" "}
-                {marketEvidenceHealth.latestFetchedAt ? formatDateTime(marketEvidenceHealth.latestFetchedAt) : "n/a"} ·
+                {marketEvidenceHealth.latestFetchedAt ? formatDateTime(marketEvidenceHealth.latestFetchedAt, locale) : "n/a"} ·
                 Stale: {marketEvidenceHealth.staleCount}
               </div>
               <div className="suite-grid" style={{ marginBottom: 14 }}>
                 <article className="suite-card">
                   <div className="suite-title">
-                    <strong>Provider readiness</strong>
+                    <strong>{t("project_detail.provider_readiness")}</strong>
                     <StatusPill tone={marketEvidenceProviders.strictReadyCount > 0 ? "good" : "warn"}>
                       {marketEvidenceProviders.strictReadyCount}
                     </StatusPill>
@@ -599,7 +657,7 @@ export default async function ProjectPage({
                 </article>
                 <article className="suite-card">
                   <div className="suite-title">
-                    <strong>Strict refresh ready</strong>
+                    <strong>{t("project_detail.strict_refresh_ready")}</strong>
                     <StatusPill tone={marketEvidenceProviders.strictReadyCount > 0 ? "good" : "danger"}>
                       {marketEvidenceProviders.strictReadyCount > 0 ? "ready" : "blocked"}
                     </StatusPill>
@@ -647,15 +705,15 @@ export default async function ProjectPage({
                       .map((summary) => (
                         <div className="stack" key={`${label}-summary`} style={{ marginBottom: 12 }}>
                           <div className="metric-row">
-                            <span>Connected / Synthetic / Failed</span>
+                            <span>{t("project_detail.connected_synthetic_failed")}</span>
                             <strong>{summary.connectedCount} / {summary.syntheticCount} / {summary.failedCount}</strong>
                           </div>
                           <div className="metric-row">
-                            <span>Latest fetched</span>
-                            <strong>{summary.latestFetchedAt ? formatDateTime(summary.latestFetchedAt) : "n/a"}</strong>
+                            <span>{t("project_detail.latest_fetched")}</span>
+                            <strong>{summary.latestFetchedAt ? formatDateTime(summary.latestFetchedAt, locale) : "n/a"}</strong>
                           </div>
                           <div className="metric-row">
-                            <span>Average latency</span>
+                            <span>{t("project_detail.average_latency")}</span>
                             <strong>{typeof summary.averageLatencyMs === "number" ? `${summary.averageLatencyMs}ms` : "n/a"}</strong>
                           </div>
                           <div className="audit-meta">
@@ -669,7 +727,7 @@ export default async function ProjectPage({
                     <ul>
                       {(items as typeof marketEvidence.trend).map((item) => (
                         <li key={`${label}-${item.sourceRef ?? item.summary}`}>
-                          {item.summary} · {item.status} · {item.sourceRef ?? "n/a"} · {item.fetchedAt ? formatDateTime(item.fetchedAt) : "n/a"}
+                          {item.summary} · {item.status} · {item.sourceRef ?? "n/a"} · {item.fetchedAt ? formatDateTime(item.fetchedAt, locale) : "n/a"}
                         </li>
                       ))}
                     </ul>
@@ -679,13 +737,13 @@ export default async function ProjectPage({
             </section>
           ) : null}
 
-          <section className="panel" id="audit">
+          <section className="panel" id="opportunities">
             <div className="section-heading">
               <div>
-                <div className="eyebrow">Opportunities</div>
-                <h2>SEO / AD / technical / UX</h2>
+                <div className="eyebrow">{t("project_detail.opportunities")}</div>
+                <h2>{t("project_detail.opportunity_title")}</h2>
               </div>
-              <p>Each opportunity is scored and linked to a skill-backed step in the release plan.</p>
+              <p>{t("project_detail.opportunity_description")}</p>
             </div>
             <div className="suite-grid">
               {opportunityGroups.map((group) => (
@@ -710,26 +768,26 @@ export default async function ProjectPage({
             <section className="panel">
               <div className="section-heading">
                 <div>
-                  <div className="eyebrow">Content plan</div>
-                  <h2>Topic clusters and publishing order</h2>
+                  <div className="eyebrow">{t("project_detail.content_plan")}</div>
+                  <h2>{t("project_detail.topic_clusters")}</h2>
                 </div>
                 <p>{contentStrategy.pillarPage}</p>
               </div>
               <div className="stack">
                 <div className="metric-row">
-                  <span>Pillar keyword</span>
+                  <span>{t("project_detail.pillar_keyword")}</span>
                   <strong>{contentStrategy.pillarKeyword}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Intent</span>
+                  <span>{t("project_detail.intent")}</span>
                   <strong>{contentStrategy.pillarIntent}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Clusters</span>
+                  <span>{t("project_detail.clusters")}</span>
                   <strong>{formatNumber(contentStrategy.topicClusters.length)}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Market signals</span>
+                  <span>{t("project_detail.market_signals")}</span>
                   <strong>{formatNumber(contentStrategy.marketSignals.length)}</strong>
                 </div>
               </div>
@@ -769,42 +827,42 @@ export default async function ProjectPage({
             <section className="panel">
               <div className="section-heading">
                 <div>
-                  <div className="eyebrow">Ad audit</div>
-                  <h2>Placement and policy fit</h2>
+                  <div className="eyebrow">{t("project_detail.ad_audit")}</div>
+                  <h2>{t("project_detail.placement_policy_fit")}</h2>
                 </div>
                 <p>{adAudit.reason}</p>
               </div>
               <div className="stack">
                 <div className="metric-row">
-                  <span>Ad allowed</span>
+                  <span>{t("project_detail.ad_allowed")}</span>
                   <strong>{adAudit.adAllowed ? "yes" : "no"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Connector status</span>
+                  <span>{t("project_detail.connector_status")}</span>
                   <strong>{adAudit.adConnectorStatus ?? "unknown"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Provider family</span>
+                  <span>{t("project_detail.provider_family")}</span>
                   <strong>{adAudit.adProviderFamily ?? "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Provider name</span>
+                  <span>{t("project_detail.provider_name")}</span>
                   <strong>{adAudit.adProviderName ?? "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Provider ref</span>
+                  <span>{t("project_detail.provider_ref")}</span>
                   <strong>{adAudit.adProviderRef ?? "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Inventory</span>
+                  <span>{t("project_detail.inventory")}</span>
                   <strong>{adAudit.adInventoryStatus ?? "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Impressions/day</span>
+                  <span>{t("project_detail.impressions_day")}</span>
                   <strong>{typeof adAudit.adImpressionsDaily === "number" ? formatNumber(adAudit.adImpressionsDaily) : "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Clicks/day</span>
+                  <span>{t("project_detail.clicks_day")}</span>
                   <strong>{typeof adAudit.adClicksDaily === "number" ? formatNumber(adAudit.adClicksDaily) : "n/a"}</strong>
                 </div>
                 <div className="metric-row">
@@ -820,64 +878,64 @@ export default async function ProjectPage({
                   <strong>{typeof adAudit.adRpm === "number" ? adAudit.adRpm.toFixed(2) : "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Revenue/day</span>
+                  <span>{t("project_detail.revenue_day")}</span>
                   <strong>{typeof adAudit.adRevenueEstimateDaily === "number" ? adAudit.adRevenueEstimateDaily.toFixed(2) : "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Revenue/month</span>
+                  <span>{t("project_detail.revenue_month")}</span>
                   <strong>{typeof adAudit.adRevenueEstimateMonthly === "number" ? adAudit.adRevenueEstimateMonthly.toFixed(2) : "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Settled/day</span>
+                  <span>{t("project_detail.settled_day")}</span>
                   <strong>{typeof adAudit.adRevenueSettledDaily === "number" ? adAudit.adRevenueSettledDaily.toFixed(2) : "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Settlement</span>
+                  <span>{t("project_detail.settlement")}</span>
                   <strong>{adAudit.adRevenueSettlementWindow ?? "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Currency</span>
+                  <span>{t("project_detail.currency")}</span>
                   <strong>{adAudit.adRevenueCurrency ?? "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Policy tier</span>
+                  <span>{t("project_detail.policy_tier")}</span>
                   <strong>{adAudit.adPolicyTier ?? "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Payout threshold</span>
+                  <span>{t("project_detail.payout_threshold")}</span>
                   <strong>{typeof adAudit.adPayoutThreshold === "number" ? adAudit.adPayoutThreshold.toFixed(2) : "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Provider program</span>
+                  <span>{t("project_detail.provider_program")}</span>
                   <strong>{adAudit.adProviderProgram ?? "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Geo coverage</span>
+                  <span>{t("project_detail.geo_coverage")}</span>
                   <strong>{adAudit.adGeoCoverage.join(" · ") || "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Strict publish</span>
+                  <span>{t("project_detail.strict_publish")}</span>
                   <strong>{adAudit.strictPublishEligible ? "eligible" : "blocked"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Providers</span>
+                  <span>{t("project_detail.providers")}</span>
                   <strong>{adAudit.providerExamples.join(" · ") || "none"}</strong>
                 </div>
                 {adAudit.failureCode ? (
                   <div className="metric-row">
-                    <span>Failure code</span>
+                    <span>{t("project_detail.failure_code")}</span>
                     <strong>{adAudit.failureCode}</strong>
                   </div>
                 ) : null}
               {adAudit.fallbackReason ? (
                 <div className="metric-row">
-                  <span>Fallback reason</span>
+                  <span>{t("project_detail.fallback_reason")}</span>
                   <strong>{adAudit.fallbackReason}</strong>
                 </div>
               ) : null}
               <div className="project-foot" style={{ marginTop: 14 }}>
-                <span>Workspace replay</span>
-                <Link href={`/monitor?adAuditProjectId=${encodeURIComponent(project.projectId)}#ad-audit-history`}>Open ad audit replay</Link>
+                <span>{t("project_detail.workspace_replay")}</span>
+                <Link href={`/monitor?adAuditProjectId=${encodeURIComponent(project.projectId)}#ad-audit-history`}>{t("project_detail.open_ad_replay")}</Link>
               </div>
             </div>
               {adAudit.negativeConditions.length > 0 ? (
@@ -913,18 +971,18 @@ export default async function ProjectPage({
             <section className="panel">
               <div className="section-heading">
                 <div>
-                  <div className="eyebrow">Technical SEO</div>
-                  <h2>Crawlability, on-page, content, and performance</h2>
+                  <div className="eyebrow">{t("project_detail.technical_seo")}</div>
+                  <h2>{t("project_detail.technical_seo_title")}</h2>
                 </div>
                 <p>{technicalSeo.overallHealth}</p>
               </div>
               <div className="stack">
                 <div className="metric-row">
-                  <span>Health</span>
+                  <span>{t("project_detail.health")}</span>
                   <strong>{technicalSeo.overallHealth}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Action plan</span>
+                  <span>{t("project_detail.action_plan")}</span>
                   <strong>{technicalSeo.actionPlan.join(" · ")}</strong>
                 </div>
               </div>
@@ -952,8 +1010,8 @@ export default async function ProjectPage({
             <section className="panel">
               <div className="section-heading">
                 <div>
-                  <div className="eyebrow">Technical SEO patch</div>
-                  <h2>Pre/post verification audit</h2>
+                  <div className="eyebrow">{t("project_detail.technical_patch")}</div>
+                  <h2>{t("project_detail.verification_audit")}</h2>
                 </div>
                 <StatusPill tone={technicalSeoPatch.verifiedPatch ? "good" : "danger"}>
                   {technicalSeoPatch.verifiedPatch ? "verified" : "failed"}
@@ -961,22 +1019,22 @@ export default async function ProjectPage({
               </div>
               <div className="stack">
                 <div className="metric-row">
-                  <span>Strict mode</span>
+                  <span>{t("project_detail.strict_mode")}</span>
                   <strong>{technicalSeoPatch.strictMode ? "on" : "off"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Checked targets</span>
+                  <span>{t("project_detail.checked_targets")}</span>
                   <strong>{String((technicalSeoPatch.patchAudit?.checkedTargets as number | undefined) ?? 0)}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Passed / failed</span>
+                  <span>{t("project_detail.passed_failed")}</span>
                   <strong>
                     {String((technicalSeoPatch.patchAudit?.passedTargets as number | undefined) ?? 0)} /{" "}
                     {String((technicalSeoPatch.patchAudit?.failedTargets as number | undefined) ?? 0)}
                   </strong>
                 </div>
                 <div className="metric-row">
-                  <span>Schema types (before/after)</span>
+                  <span>{t("project_detail.schema_before_after")}</span>
                   <strong>
                     {String((((technicalSeoPatch.patchAudit?.beforeAfter as { schemaTypes?: { before?: unknown[] } } | undefined)?.schemaTypes?.before?.length) ?? 0))} /{" "}
                     {String((((technicalSeoPatch.patchAudit?.beforeAfter as { schemaTypes?: { after?: unknown[] } } | undefined)?.schemaTypes?.after?.length) ?? 0))}
@@ -993,29 +1051,77 @@ export default async function ProjectPage({
             </section>
           ) : null}
 
-          <PreviewDiff preview={workflow.preview} />
+          {seoConversionAudit ? (
+            <section className="panel">
+              <div className="section-heading">
+                <div>
+                  <div className="eyebrow">SEO audit lifecycle</div>
+                  <h2>Evidence and conversion review</h2>
+                </div>
+                <StatusPill tone={seoConversionAudit.attribution.status === "ready" ? "good" : "warn"}>
+                  {seoConversionAudit.attribution.status === "ready" ? "attribution ready" : "待核验"}
+                </StatusPill>
+              </div>
+              <div className="stack">
+                <div className="metric-row">
+                  <span>Conversion goal</span>
+                  <strong>{seoConversionAudit.attribution.conversionGoal}</strong>
+                </div>
+                <div className="metric-row">
+                  <span>Evidence sources</span>
+                  <strong>{seoConversionAudit.attribution.availableSources.join(" · ") || "none"}</strong>
+                </div>
+                <div className="metric-row">
+                  <span>Baseline windows</span>
+                  <strong>
+                    {seoConversionAudit.baselineReadiness.map((item) => `${item.windowDays}d ${item.ready ? "ready" : "待核验"}`).join(" · ")}
+                  </strong>
+                </div>
+              </div>
+              <div className="suite-grid" style={{ marginTop: 14 }}>
+                {seoConversionAudit.findings.slice(0, 6).map((item) => (
+                  <article className="suite-card" key={item.findingId}>
+                    <div className="suite-title">
+                      <strong>{item.priority} · {item.area}</strong>
+                      <StatusPill tone={item.evidenceStatus === "observed" ? "good" : "warn"}>{item.evidenceStatus}</StatusPill>
+                    </div>
+                    <p>{item.issue}</p>
+                    <div className="audit-meta">{item.recommendedAction}</div>
+                    {item.requiresApproval ? <div className="audit-meta">Approval and rollback required.</div> : null}
+                  </article>
+                ))}
+              </div>
+              <div className="audit-meta" style={{ marginTop: 14 }}>
+                Reviews: {seoConversionAudit.reviewCheckpoints.map((item) => `day ${item.day}: ${item.ready ? "ready" : "待核验"}`).join(" · ")}
+              </div>
+            </section>
+          ) : null}
+
+          <div id="preview">
+            <PreviewDiff preview={workflow.preview} />
+          </div>
         </div>
 
         <div className="detail-stack">
-          <section className="panel">
+          <section className="panel" id="approval">
             <div className="section-heading">
               <div>
-                <div className="eyebrow">Approval</div>
-                <h2>Gate status</h2>
+                <div className="eyebrow">{t("project_detail.approval")}</div>
+                <h2>{t("project_detail.gate_status")}</h2>
               </div>
               <p>{workflow.approvalRequest.decisionHint}</p>
             </div>
             <div className="stack">
               <div className="metric-row">
-                <span>Approval status</span>
+                <span>{t("project_detail.approval_status")}</span>
                 <strong>{workflow.approvalRequest.status}</strong>
               </div>
               <div className="metric-row">
-                <span>Risk summary</span>
+                <span>{t("project_detail.risk_summary")}</span>
                 <strong>{workflow.approvalRequest.riskSummary}</strong>
               </div>
               <div className="metric-row">
-                <span>Approvers</span>
+                <span>{t("project_detail.approvers")}</span>
                 <strong>{workflow.approvalRequest.requiredApprovers.join(", ")}</strong>
               </div>
             </div>
@@ -1034,8 +1140,8 @@ export default async function ProjectPage({
             <section className="panel">
               <div className="section-heading">
                 <div>
-                  <div className="eyebrow">Experiment routing</div>
-                  <h2>Runtime assignment</h2>
+                  <div className="eyebrow">{t("project_detail.experiment_routing")}</div>
+                  <h2>{t("project_detail.runtime_assignment")}</h2>
                 </div>
                 <StatusPill tone={experimentAssignment.assignedExperimentCount > 0 ? "good" : experimentAssignment.warnings.length > 0 ? "warn" : "neutral"}>
                   {experimentAssignment.assignedExperimentCount > 0 ? "assigned" : experimentAssignment.strictAssignment ? "strict" : "preview"}
@@ -1074,17 +1180,17 @@ export default async function ProjectPage({
                       </StatusPill>
                     </div>
                     <div className="metric-row">
-                      <span>Variant</span>
+                      <span>{t("project_detail.variant")}</span>
                       <strong>{assignment.assignedVariantName ?? assignment.controlVariantName}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Bucket</span>
+                      <span>{t("project_detail.bucket")}</span>
                       <strong>
                         {assignment.bucketRoll}/{assignment.bucketSize}
                       </strong>
                     </div>
                     <div className="metric-row">
-                      <span>Scope</span>
+                      <span>{t("project_detail.scope")}</span>
                       <strong>
                         {assignment.targetSurface}
                         {assignment.targetLocale ? ` · ${assignment.targetLocale}` : ""}
@@ -1118,8 +1224,8 @@ export default async function ProjectPage({
             <section className="panel">
               <div className="section-heading">
                 <div>
-                  <div className="eyebrow">Localization routing</div>
-                  <h2>Runtime cluster assignment</h2>
+                  <div className="eyebrow">{t("project_detail.localization_routing")}</div>
+                  <h2>{t("project_detail.runtime_cluster_assignment")}</h2>
                 </div>
                 <StatusPill tone={localizationAssignment.assignedClusterCount > 0 ? "good" : localizationAssignment.warnings.length > 0 ? "warn" : "neutral"}>
                   {localizationAssignment.assignedClusterCount > 0 ? "assigned" : localizationAssignment.strictLocalization ? "strict" : "preview"}
@@ -1158,11 +1264,11 @@ export default async function ProjectPage({
                       </StatusPill>
                     </div>
                     <div className="metric-row">
-                      <span>Route prefix</span>
+                      <span>{t("project_detail.route_prefix")}</span>
                       <strong>{assignment.routePrefix}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Scope</span>
+                      <span>{t("project_detail.scope")}</span>
                       <strong>
                         {assignment.matchedByProject ? "project" : ""}
                         {assignment.matchedByLocale ? `${assignment.matchedByProject ? " · " : ""}locale` : ""}
@@ -1170,7 +1276,7 @@ export default async function ProjectPage({
                       </strong>
                     </div>
                     <div className="metric-row">
-                      <span>Canonical</span>
+                      <span>{t("project_detail.canonical")}</span>
                       <strong>{assignment.canonicalProjectId ?? "n/a"}</strong>
                     </div>
                     {assignment.warnings.length ? (
@@ -1200,8 +1306,8 @@ export default async function ProjectPage({
             <section className="panel">
               <div className="section-heading">
                 <div>
-                  <div className="eyebrow">Runtime route</div>
-                  <h2>Request-chain resolution</h2>
+                  <div className="eyebrow">{t("project_detail.runtime_route")}</div>
+                  <h2>{t("project_detail.request_chain")}</h2>
                 </div>
                 <StatusPill tone={runtimeRoute.runtimeReady ? "good" : "warn"}>
                   {runtimeRoute.runtimeReady ? "runtime-ready" : "preview"}
@@ -1232,14 +1338,14 @@ export default async function ProjectPage({
               </div>
               <div className="stack" style={{ marginTop: 14 }}>
                 <div className="metric-row">
-                  <span>Experiment</span>
+                  <span>{t("project_detail.experiment")}</span>
                   <strong>
                     {runtimeRoute.experimentAssignment?.assignments.find((assignment) => assignment.eligible && assignment.assignedVariantName)?.assignedVariantName ??
                       "preview"}
                   </strong>
                 </div>
                 <div className="metric-row">
-                  <span>Locale route</span>
+                  <span>{t("project_detail.locale_route")}</span>
                   <strong>
                     {runtimeRoute.localizationAssignment?.assignments.find(
                       (assignment) => assignment.clusterReady && (assignment.matchedByProject || assignment.matchedByLocale || assignment.matchedByHost),
@@ -1247,17 +1353,17 @@ export default async function ProjectPage({
                   </strong>
                 </div>
                 <div className="metric-row">
-                  <span>Request</span>
+                  <span>{t("project_detail.request")}</span>
                   <strong>
                     {runtimeRoute.requestMethod ?? "POST"} {runtimeRoute.requestPath ?? `/api/projects/${runtimeRoute.projectId}/runtime-route`}
                   </strong>
                 </div>
                 <div className="metric-row">
-                  <span>Providers</span>
+                  <span>{t("project_detail.providers")}</span>
                   <strong>{Object.entries(runtimeRoute.resolvedProviders).map(([suite, provider]) => `${suite}:${provider}`).join(" · ") || "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Analysis entry</span>
+                  <span>{t("project_detail.analysis_entry")}</span>
                   <strong>
                     POST /api/projects/{runtimeRoute.projectId}/sync
                   </strong>
@@ -1278,13 +1384,13 @@ export default async function ProjectPage({
             </section>
           ) : null}
 
-          <section className="panel">
+          <section className="panel" id="advanced">
             <div className="section-heading">
               <div>
-                <div className="eyebrow">Gateway providers</div>
-                <h2>Runtime-edge and visual-farm readiness</h2>
+                <div className="eyebrow">{t("project_detail.gateway_providers")}</div>
+                <h2>{t("project_detail.runtime_visual_readiness")}</h2>
               </div>
-              <p>Project-scoped provider status for the two publish chains that feed runtime routing and visual regression.</p>
+              <p>{t("project_detail.runtime_visual_description")}</p>
             </div>
             <div className="suite-grid">
               <article className="suite-card">
@@ -1341,8 +1447,8 @@ export default async function ProjectPage({
           <section className="panel">
             <div className="section-heading">
               <div>
-                <div className="eyebrow">Runtime route history</div>
-                <h2>Route replay</h2>
+                <div className="eyebrow">{t("project_detail.runtime_route_history")}</div>
+                <h2>{t("project_detail.route_replay")}</h2>
               </div>
               <p>
                 Recent request-chain resolutions with request path, method, experiment, and locale routing.{" "}
@@ -1365,7 +1471,7 @@ export default async function ProjectPage({
                     ? `${runtimeRouteHistory.entries[0].runtimeRouteRequestMethod ?? "POST"} ${runtimeRouteHistory.entries[0].runtimeRouteRequestPath ?? `/api/projects/${params.projectId}/sync`}`
                     : "n/a"
                 }
-                caption={runtimeRouteHistory.entries[0] ? formatDateTime(runtimeRouteHistory.entries[0].startedAt) : "no route history yet"}
+                caption={runtimeRouteHistory.entries[0] ? formatDateTime(runtimeRouteHistory.entries[0].startedAt, locale) : "no route history yet"}
               />
               <StatCard
                 label="Latest route"
@@ -1384,43 +1490,43 @@ export default async function ProjectPage({
                       </StatusPill>
                     </div>
                     <div className="audit-meta">
-                      {run.runId} · {formatDateTime(run.startedAt)}
+                      {run.runId} · {formatDateTime(run.startedAt, locale)}
                     </div>
                     <div className="metric-row">
-                      <span>Request</span>
+                      <span>{t("project_detail.request")}</span>
                       <strong>
                         {run.runtimeRouteRequestMethod ?? "POST"} {run.runtimeRouteRequestPath ?? `/api/projects/${params.projectId}/sync`}
                       </strong>
                     </div>
                     <div className="metric-row">
-                      <span>Route</span>
+                      <span>{t("project_detail.route")}</span>
                       <strong>
                         {run.runtimeRouteSummary ?? "n/a"} · route {run.gatewayRouteProviderName ?? "n/a"} · fallback {run.gatewayRouteFallbackProviderName ?? "n/a"} · priority{" "}
                         {run.gatewayRoutePriority ?? "n/a"}
                       </strong>
                     </div>
                     <div className="metric-row">
-                      <span>Execution</span>
+                      <span>{t("project_detail.execution")}</span>
                       <strong>
                         {run.runtimeRouteExecutionMode ?? "preview"} · {run.runtimeRouteExecutionAction ?? "serve_preview"} · {run.runtimeRouteExecutionEntrypoint ?? `/api/projects/${params.projectId}/sync`}
                       </strong>
                     </div>
                     <div className="metric-row">
-                      <span>Reason</span>
+                      <span>{t("project_detail.reason")}</span>
                       <strong>{run.runtimeRouteExecutionReason ?? "n/a"}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Risk</span>
+                      <span>{t("project_detail.risk")}</span>
                       <strong>{run.riskScore}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>State</span>
+                      <span>{t("project_detail.state")}</span>
                       <strong>{run.runtimeRouteReady ? "ready" : "preview-only"}</strong>
                     </div>
                   </article>
                 ))
               ) : (
-                <div className="alert-box">No runtime route history yet for this project.</div>
+                <div className="alert-box">{t("project_detail.no_runtime_history")}</div>
               )}
             </div>
           </section>
@@ -1428,15 +1534,15 @@ export default async function ProjectPage({
           <section className="panel">
             <div className="section-heading">
               <div>
-                <div className="eyebrow">Gateway providers</div>
-                <h2>Billing and model readiness</h2>
+                <div className="eyebrow">{t("project_detail.gateway_providers")}</div>
+                <h2>{t("project_detail.billing_model_readiness")}</h2>
               </div>
-              <p>Project view for the remaining routed control planes: settlement and model execution.</p>
+              <p>{t("project_detail.billing_model_description")}</p>
             </div>
             <div className="suite-grid">
               <article className="suite-card">
                 <div className="suite-title">
-                  <strong>Billing gateway</strong>
+                  <strong>{t("project_detail.billing_gateway")}</strong>
                   <StatusPill tone={billingGatewayProviders.gatewayReady ? "good" : "warn"}>
                     {billingGatewayProviders.gatewayReady ? "ready" : "partial"}
                   </StatusPill>
@@ -1460,7 +1566,7 @@ export default async function ProjectPage({
               </article>
               <article className="suite-card">
                 <div className="suite-title">
-                  <strong>Model gateway</strong>
+                  <strong>{t("project_detail.model_gateway")}</strong>
                   <StatusPill tone={modelGatewayProviders.gatewayReady ? "good" : "warn"}>
                     {modelGatewayProviders.gatewayReady ? "ready" : "partial"}
                   </StatusPill>
@@ -1490,22 +1596,22 @@ export default async function ProjectPage({
           <section className="panel">
             <div className="section-heading">
               <div>
-                <div className="eyebrow">Review</div>
-                <h2>UX / policy notes</h2>
+                <div className="eyebrow">{t("project_detail.review")}</div>
+                <h2>{t("project_detail.ux_policy_notes")}</h2>
               </div>
-              <p>Issues that would affect trust or CTA clarity are surfaced before deployment.</p>
+              <p>{t("project_detail.review_description")}</p>
             </div>
             <div className="stack">
               <div className="metric-row">
-                <span>UX score</span>
+                <span>{t("project_detail.ux_score")}</span>
                 <strong>{workflow.uxReview.score}</strong>
               </div>
               <div className="metric-row">
-                <span>Issues</span>
+                <span>{t("project_detail.issues")}</span>
                 <strong>{workflow.uxReview.issues.join(" · ") || "None"}</strong>
               </div>
               <div className="metric-row">
-                <span>Notes</span>
+                <span>{t("project_detail.notes")}</span>
                 <strong>{workflow.uxReview.notes.join(" · ")}</strong>
               </div>
             </div>
@@ -1516,13 +1622,13 @@ export default async function ProjectPage({
             ) : null}
           </section>
 
-          <section className="panel">
+          <section className="panel" id="release">
             <div className="section-heading">
               <div>
-                <div className="eyebrow">Deployment</div>
-                <h2>Release and rollback</h2>
+                <div className="eyebrow">{t("project_detail.deployment")}</div>
+                <h2>{t("project_detail.release_rollback")}</h2>
               </div>
-              <p>Promotion status, metrics, and reversal safety are surfaced together instead of being hidden in logs.</p>
+              <p>{t("project_detail.release_description")}</p>
             </div>
             <div className="stat-grid">
               <StatCard label="Deployments" value={formatNumber(deploymentHistory.total)} caption="project deployment records" accent />
@@ -1535,73 +1641,75 @@ export default async function ProjectPage({
             {deploymentLatest ? (
               <div className="audit-meta" style={{ marginTop: 12 }}>
                 Latest deploy: {deploymentLatest.deployment.deploymentId} · {deploymentLatest.deployment.mode} ·{" "}
-                {deploymentLatest.deployment.status} · updated {formatDateTime(deploymentLatest.updatedAt)}
+                {deploymentLatest.deployment.status} · updated {formatDateTime(deploymentLatest.updatedAt, locale)}
               </div>
             ) : null}
             {rollbackLatest ? (
               <div className="audit-meta">
                 Latest rollback: {rollbackLatest.rollback.rollbackId} · {rollbackLatest.rollback.reason} ·{" "}
-                {formatDateTime(rollbackLatest.updatedAt)}
+                {formatDateTime(rollbackLatest.updatedAt, locale)}
               </div>
             ) : null}
             <div className="deployment-grid">
               <div className="deployment-card">
                 <div className="metric-row">
-                  <span>Status</span>
+                  <span>{t("project_detail.status")}</span>
                   <strong>{workflow.deployment?.status ?? "not scheduled"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Mode</span>
+                  <span>{t("project_detail.mode")}</span>
                   <strong>{workflow.deployment?.mode ?? workflow.plan.deploymentMode}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Rollback ready</span>
-                  <strong>{workflow.deployment?.rollbackReady ? "yes" : "pending"}</strong>
+                  <span>{t("project_detail.rollback_ready")}</span>
+                  <strong>
+                    {verifiedRollbackReady ? "yes" : workflow.deployment?.rollbackReady ? "declared, bundle missing" : "pending"}
+                  </strong>
                 </div>
                 <div className="metric-row">
-                  <span>Strict mode</span>
+                  <span>{t("project_detail.strict_mode")}</span>
                   <strong>{workflow.deployment?.strictMode ? "on" : "off"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Verified patch</span>
+                  <span>{t("project_detail.verified_patch")}</span>
                   <strong>{workflow.deployment?.verifiedPatch ? "yes" : "no"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Artifact</span>
+                  <span>{t("project_detail.artifact")}</span>
                   <strong>{workflow.deployment?.artifactRef ?? workflow.preview.previewId}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Provider id</span>
+                  <span>{t("project_detail.provider_id")}</span>
                   <strong>{workflow.deployment?.providerArtifactId ?? "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Provider url</span>
+                  <span>{t("project_detail.provider_url")}</span>
                   <strong>{workflow.deployment?.providerUrl ?? "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Auth source</span>
+                  <span>{t("project_detail.auth_source")}</span>
                   <strong>{workflow.deployment?.writebackAuthSource ?? "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Writeback provider</span>
+                  <span>{t("project_detail.writeback_provider")}</span>
                   <strong>{String(workflow.deployment?.writebackSummary?.provider ?? "n/a")}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Writeback attempts</span>
+                  <span>{t("project_detail.writeback_attempts")}</span>
                   <strong>{workflow.deployment?.writebackAttempts?.length ?? 0}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Writeback summary</span>
+                  <span>{t("project_detail.writeback_summary")}</span>
                   <strong>
                     {`${String(workflow.deployment?.writebackSummary?.successCount ?? 0)}/${String(workflow.deployment?.writebackSummary?.failedCount ?? 0)}/${String(workflow.deployment?.writebackSummary?.skippedCount ?? 0)}`}
                   </strong>
                 </div>
                 <div className="metric-row">
-                  <span>Last endpoint</span>
+                  <span>{t("project_detail.last_endpoint")}</span>
                   <strong>{String(workflow.deployment?.writebackSummary?.lastEndpoint ?? "n/a")}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Average latency</span>
+                  <span>{t("project_detail.average_latency")}</span>
                   <strong>
                     {typeof workflow.deployment?.writebackSummary?.averageLatencyMs === "number"
                       ? `${String(workflow.deployment.writebackSummary.averageLatencyMs)}ms`
@@ -1609,19 +1717,19 @@ export default async function ProjectPage({
                   </strong>
                 </div>
                 <div className="metric-row">
-                  <span>Writeback failure</span>
+                  <span>{t("project_detail.failure")}</span>
                   <strong>{String(workflow.deployment?.writebackSummary?.failureCode ?? "none")}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Successful endpoints</span>
+                  <span>{t("project_detail.successful_endpoints")}</span>
                   <strong>{Array.isArray(workflow.deployment?.writebackSummary?.successfulEndpoints) ? workflow.deployment.writebackSummary.successfulEndpoints.join(" · ") || "none" : "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Failed endpoints</span>
+                  <span>{t("project_detail.failed_endpoints")}</span>
                   <strong>{Array.isArray(workflow.deployment?.writebackSummary?.failedEndpoints) ? workflow.deployment.writebackSummary.failedEndpoints.join(" · ") || "none" : "n/a"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Patch manifest</span>
+                  <span>{t("project_detail.patch_manifest")}</span>
                   <strong>{workflow.deployment?.patchManifestRef ?? "n/a"}</strong>
                 </div>
                 {workflow.deployment?.writebackAttempts?.length ? (
@@ -1635,13 +1743,13 @@ export default async function ProjectPage({
                 ) : null}
                 {workflow.deployment?.failureCode ? (
                   <div className="metric-row">
-                    <span>Failure code</span>
+                    <span>{t("project_detail.failure_code")}</span>
                     <strong>{workflow.deployment.failureCode}</strong>
                   </div>
                 ) : null}
                 {workflow.deployment?.fallbackReason ? (
                   <div className="metric-row">
-                    <span>Fallback reason</span>
+                    <span>{t("project_detail.fallback_reason")}</span>
                     <strong>{workflow.deployment.fallbackReason}</strong>
                   </div>
                 ) : null}
@@ -1665,37 +1773,37 @@ export default async function ProjectPage({
               </div>
               <div className="deployment-card">
                 <div className="metric-row">
-                  <span>Rollback ID</span>
+                  <span>{t("project_detail.rollback_id")}</span>
                   <strong>{workflow.rollbackBundle?.rollbackId ?? "pending"}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Safe window</span>
+                  <span>{t("project_detail.safe_window")}</span>
                   <strong>{workflow.rollbackBundle ? `${workflow.rollbackBundle.safeWindowMinutes}m` : `${workflow.plan.riskScore >= 80 ? 5 : 10}m`}</strong>
                 </div>
                 <div className="metric-row">
-                  <span>Expected effect</span>
+                  <span>{t("project_detail.expected_effect")}</span>
                   <strong>{workflow.rollbackBundle?.expectedEffect ?? "Restore the previous stable release."}</strong>
                 </div>
                 {workflow.metricSnapshot ? (
                   <div className="stack" style={{ marginTop: 12 }}>
                     <div className="metric-row">
-                      <span>SEO score</span>
+                      <span>{t("project_detail.seo_score")}</span>
                       <strong>{workflow.metricSnapshot.seoScore}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Ad fit</span>
+                      <span>{t("project_detail.ad_fit")}</span>
                       <strong>{workflow.metricSnapshot.adFitScore}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Traffic delta</span>
+                      <span>{t("project_detail.traffic_delta")}</span>
                       <strong>{workflow.metricSnapshot.trafficDelta}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Metric sources</span>
+                      <span>{t("project_detail.metric_sources")}</span>
                       <strong>{Object.entries(workflow.metricSnapshot.sourceStatus).map(([key, value]) => `${key}:${value}`).join(" · ") || "synthetic"}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>External metrics</span>
+                      <span>{t("project_detail.external_metrics")}</span>
                       <strong>{Object.keys(workflow.metricSnapshot.externalMetrics).join(" · ") || "none"}</strong>
                     </div>
                     {workflow.metricSnapshot.sourceMetricsSummary?.length ? (
@@ -1723,7 +1831,7 @@ export default async function ProjectPage({
               </div>
               <div className="deployment-card">
                 <div className="metric-row">
-                  <span>Deployment history</span>
+                  <span>{t("project_detail.deployment_history")}</span>
                   <strong>{deploymentHistory.entries?.length ?? 0}</strong>
                 </div>
                 {deploymentHistory.entries?.length ? (
@@ -1741,12 +1849,12 @@ export default async function ProjectPage({
                     ))}
                   </ul>
                 ) : (
-                  <p className="panel-note">No deployment records have been captured for this project yet.</p>
+                  <p className="panel-note">{t("project_detail.no_deployments")}</p>
                 )}
               </div>
               <div className="deployment-card">
                 <div className="metric-row">
-                  <span>Rollback history</span>
+                  <span>{t("project_detail.rollback_history")}</span>
                   <strong>{rollbackHistory.entries?.length ?? 0}</strong>
                 </div>
                 {rollbackHistory.entries?.length ? (
@@ -1760,49 +1868,49 @@ export default async function ProjectPage({
                     ))}
                   </ul>
                 ) : (
-                  <p className="panel-note">No rollback records have been captured for this project yet.</p>
+                  <p className="panel-note">{t("project_detail.no_rollbacks")}</p>
                 )}
               </div>
             </div>
           </section>
 
-          <section className="panel">
+          <section className="panel" id="monitoring">
             <div className="section-heading">
               <div>
-                <div className="eyebrow">Runs</div>
-                <h2>Run history</h2>
+                <div className="eyebrow">{t("project_detail.runs")}</div>
+                <h2>{t("project_detail.run_history")}</h2>
               </div>
-              <p>Sync, monitor, deploy, and rollback now share one auditable run timeline.</p>
+              <p>{t("project_detail.run_history_description")}</p>
             </div>
             <div className="stat-grid" style={{ marginBottom: 14 }}>
               <div className="suite-card">
                 <div className="suite-title">
-                  <strong>Total runs</strong>
+                  <strong>{t("project_detail.total_runs")}</strong>
                   <StatusPill tone="accent">{runs.length}</StatusPill>
                 </div>
-                <div className="project-copy">Cross-stage execution records</div>
+                <div className="project-copy">{t("project_detail.cross_stage_records")}</div>
               </div>
               <div className="suite-card">
                 <div className="suite-title">
-                  <strong>Monitor runs</strong>
+                  <strong>{t("project_detail.monitor_runs_label")}</strong>
                   <StatusPill tone={monitorFailedRuns.length > 0 ? "warn" : "good"}>{monitorRuns.length}</StatusPill>
                 </div>
                 <div className="project-copy">
-                  {latestMonitorRun ? `Latest: ${formatDateTime(latestMonitorRun.startedAt)}` : "No monitor run yet"}
+                  {latestMonitorRun ? `Latest: ${formatDateTime(latestMonitorRun.startedAt, locale)}` : "No monitor run yet"}
                 </div>
               </div>
               <div className="suite-card">
                 <div className="suite-title">
-                  <strong>Rollback runs</strong>
+                  <strong>{t("project_detail.rollback_runs_label")}</strong>
                   <StatusPill tone={rollbackRuns.length > 0 ? "warn" : "neutral"}>{rollbackRuns.length}</StatusPill>
                 </div>
                 <div className="project-copy">
-                  {latestRollbackRun ? `Latest: ${formatDateTime(latestRollbackRun.startedAt)}` : "No rollback run yet"}
+                  {latestRollbackRun ? `Latest: ${formatDateTime(latestRollbackRun.startedAt, locale)}` : "No rollback run yet"}
                 </div>
               </div>
               <div className="suite-card">
                 <div className="suite-title">
-                  <strong>Completed / Failed</strong>
+                  <strong>{t("project_detail.completed_failed")}</strong>
                   <StatusPill tone={failedRunCount > 0 ? "warn" : "good"}>
                     {completedRunCount}/{failedRunCount}
                   </StatusPill>
@@ -1814,13 +1922,13 @@ export default async function ProjectPage({
             </div>
             <div className="audit-meta" style={{ marginBottom: 14 }}>
               Latest run: {latestRun ? `${latestRun.runId} · ${latestRun.status} · ${latestRun.trigger}` : "n/a"} ·
-              Latest monitor: {latestMonitorRun ? `${latestMonitorRun.status} at ${formatDateTime(latestMonitorRun.startedAt)}` : "n/a"} ·
-              Latest rollback: {latestRollbackRun ? `${latestRollbackRun.status} at ${formatDateTime(latestRollbackRun.startedAt)}` : "n/a"}
+              Latest monitor: {latestMonitorRun ? `${latestMonitorRun.status} at ${formatDateTime(latestMonitorRun.startedAt, locale)}` : "n/a"} ·
+              Latest rollback: {latestRollbackRun ? `${latestRollbackRun.status} at ${formatDateTime(latestRollbackRun.startedAt, locale)}` : "n/a"}
             </div>
             <div className="project-foot" style={{ marginBottom: 14 }}>
-              <span>Filters</span>
+              <span>{t("project_detail.filters")}</span>
               <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                <Link href={`/projects/${params.projectId}?runLimit=20`}>all</Link>
+                <Link href={`/projects/${params.projectId}?runLimit=20`}>{t("project_detail.all")}</Link>
                 <Link href={`/projects/${params.projectId}?runTrigger=monitor&runLimit=20`}>monitor</Link>
                 <Link href={`/projects/${params.projectId}?runTrigger=rollback&runLimit=20`}>rollback</Link>
                 <Link href={`/projects/${params.projectId}?runStatus=rolled_back&runLimit=20`}>rolled_back</Link>
@@ -1836,43 +1944,43 @@ export default async function ProjectPage({
                       <StatusPill tone={runTone(run.status)}>{run.status}</StatusPill>
                     </div>
                     <div className="audit-meta">
-                      {run.runId} · {formatDateTime(run.startedAt)}
+                      {run.runId} · {formatDateTime(run.startedAt, locale)}
                     </div>
                     <div className="metric-row">
-                      <span>Request</span>
+                      <span>{t("project_detail.request")}</span>
                       <strong>
                         {run.runtimeRouteRequestMethod ?? "POST"} {run.runtimeRouteRequestPath ?? `/api/projects/${params.projectId}/sync`}
                       </strong>
                     </div>
                     <div className="metric-row">
-                      <span>Risk</span>
+                      <span>{t("project_detail.risk")}</span>
                       <strong>{run.riskScore}</strong>
                     </div>
                     <div className="metric-row">
-                      <span>Connector health</span>
+                      <span>{t("project_detail.connector_health")}</span>
                       <strong>{Object.values(run.connectorStatus).join(" · ") || state.connectionHealth}</strong>
                     </div>
                     <div className="audit-meta">{run.notes.join(" · ") || "No run notes."}</div>
                   </article>
                 ))
               ) : (
-                <div className="alert-box">No run history yet for this project.</div>
+                <div className="alert-box">{t("project_detail.no_run_history")}</div>
               )}
             </div>
           </section>
 
-          <section className="panel">
+          <section className="panel" id="audit">
             <div className="section-heading">
               <div>
-                <div className="eyebrow">Audit</div>
-                <h2>Event trail</h2>
+                <div className="eyebrow">{t("project_detail.audit")}</div>
+                <h2>{t("project_detail.event_trail")}</h2>
               </div>
-              <p>Each action is recorded so approvals, deploys, and rollbacks can be traced from the console.</p>
+              <p>{t("project_detail.audit_description")}</p>
             </div>
             <div className="stat-grid" style={{ marginBottom: 14 }}>
               <StatCard label="Audit entries" value={formatNumber(detail.audits.length)} caption="project audit records" accent />
               <StatCard label="Top action" value={auditActionTop?.[0] ?? "n/a"} caption={auditActionTop ? `${auditActionTop[1]} records` : "no audit actions"} />
-              <StatCard label="Latest audit" value={latestAudit ? String(latestAudit.action ?? "n/a") : "n/a"} caption={latestAudit ? formatAuditTime(latestAudit.createdAt) : "no audit trail"} />
+              <StatCard label="Latest audit" value={latestAudit ? String(latestAudit.action ?? "n/a") : "n/a"} caption={latestAudit ? formatAuditTime(latestAudit.createdAt, locale) : "no audit trail"} />
               <StatCard label="Event spread" value={formatNumber(Object.keys(auditActionCounts).length)} caption="distinct audit actions" />
             </div>
             <div className="audit-grid">
@@ -1881,7 +1989,7 @@ export default async function ProjectPage({
                   <div className="audit-head">
                     <strong className="audit-title">{String(audit.action)}</strong>
                     <span className="audit-meta">
-                      {String(audit.actor)} · {formatAuditTime(audit.createdAt)}
+                      {String(audit.actor)} · {formatAuditTime(audit.createdAt, locale)}
                     </span>
                   </div>
                   <div className="audit-meta">

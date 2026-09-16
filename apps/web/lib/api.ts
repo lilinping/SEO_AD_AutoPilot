@@ -123,6 +123,7 @@ import type {
     ProjectSyncRequest,
     RollbackActionRequest,
     SiteIntake,
+    SeoConversionAuditReport,
     TechnicalSeoReport,
     WorkflowBundle,
 } from "@seo-ad-autopilot/contracts";
@@ -601,6 +602,10 @@ export async function getWorkspaceAdAuditHistory(
 
 export async function getProjectTechnicalSeo(projectId: string): Promise<TechnicalSeoReport> {
   return request<TechnicalSeoReport>(`/projects/${projectId}/technical-seo`)
+}
+
+export async function getProjectSeoConversionAudit(projectId: string): Promise<SeoConversionAuditReport> {
+  return request<SeoConversionAuditReport>(`/projects/${projectId}/seo-conversion-audit`)
 }
 
 export async function getPromptRegistry(): Promise<PromptRegistry> {

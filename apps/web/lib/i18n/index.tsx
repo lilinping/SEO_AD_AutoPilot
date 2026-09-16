@@ -1,10 +1,8 @@
 "use client";
 
 import { createContext, useContext, useState, ReactNode } from "react";
-import en from "./en.json";
-import zh from "./zh.json";
 
-type Locale = "en" | "zh";
+import { translate, type Locale } from "./shared";
 
 interface I18nContextType {
   locale: Locale;
@@ -12,30 +10,17 @@ interface I18nContextType {
   t: (key: string) => string;
 }
 
-const translations: Record<Locale, Record<string, any>> = {
-  en,
-  zh,
-};
-
 const I18nContext = createContext<I18nContextType | undefined>(undefined);
 
-export function I18nProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocale] = useState<Locale>("zh");
+export function I18nProvider({ children, initialLocale }: { children: ReactNode; initialLocale: Locale }) {
+  const [locale, setLocaleState] = useState<Locale>(initialLocale);
 
-  const t = (key: string): string => {
-    const keys = key.split(".");
-    let value: any = translations[locale];
-
-    for (const k of keys) {
-      if (value && typeof value === "object" && k in value) {
-        value = value[k];
-      } else {
-        return key;
-      }
-    }
-
-    return typeof value === "string" ? value : key;
+  const setLocale = (nextLocale: Locale) => {
+    setLocaleState(nextLocale);
+    document.documentElement.lang = nextLocale;
   };
+
+  const t = (key: string) => translate(locale, key);
 
   return (
     <I18nContext.Provider value={{ locale, setLocale, t }}>

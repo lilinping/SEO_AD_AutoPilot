@@ -76,10 +76,10 @@ export default function KeywordsPage() {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
-      if (!data.success) throw new Error(data.error || "Research failed");
+      if (!data.success) throw new Error(data.error || t("keywords.research_failed"));
       setResult(data.data);
     } catch (err) {
-      setError(`Research failed: ${err instanceof Error ? err.message : "Cannot connect to backend"}`);
+      setError(`${t("keywords.research_failed")}: ${err instanceof Error ? err.message : t("keywords.cannot_connect")}`);
     } finally { setAnalyzing(false); }
   };
 
@@ -107,7 +107,7 @@ export default function KeywordsPage() {
       <section className="panel">
         <div className="input-group">
           <textarea
-            placeholder="Enter keywords (one per line)&#10;e.g.: wireless headphones&#10;best bluetooth earbuds&#10;noise cancelling headphones"
+            placeholder={`${t("keywords.placeholder")}\ne.g.: wireless headphones\nbest bluetooth earbuds\nnoise cancelling headphones`}
             value={input}
             onChange={e => setInput(e.target.value)}
             className="input-field"
@@ -124,7 +124,7 @@ export default function KeywordsPage() {
               <option value="JP">JP</option>
             </select>
             <button onClick={handleResearch} disabled={analyzing || !input.trim()} className="button button-primary">
-              {analyzing ? "研究中..." : t("common.analyze") || "Research"}
+              {analyzing ? t("keywords.researching") : t("keywords.research")}
             </button>
           </div>
         </div>
@@ -135,7 +135,7 @@ export default function KeywordsPage() {
       {analyzing && (
         <section className="panel" style={{ textAlign: "center", padding: 40 }}>
           <div className="spinner" style={{ margin: "0 auto 12px" }} />
-          <p style={{ color: "var(--muted)", fontSize: "0.85rem" }}>Researching keywords...</p>
+          <p style={{ color: "var(--muted)", fontSize: "0.85rem" }}>{t("keywords.researching")}</p>
         </section>
       )}
 
@@ -143,19 +143,19 @@ export default function KeywordsPage() {
         <>
           <section className="stat-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
             <div className="stat-card">
-              <div className="stat-card-label">Keywords</div>
+              <div className="stat-card-label">{t("keywords.keywords")}</div>
               <div className="stat-card-value">{result.summary.total_keywords}</div>
             </div>
             <div className="stat-card">
-              <div className="stat-card-label">Total Volume</div>
+              <div className="stat-card-label">{t("keywords.total_volume")}</div>
               <div className="stat-card-value">{result.summary.total_search_volume.toLocaleString()}</div>
             </div>
             <div className="stat-card">
-              <div className="stat-card-label">Avg Difficulty</div>
+              <div className="stat-card-label">{t("keywords.avg_difficulty")}</div>
               <div className="stat-card-value" style={{ color: getDiffColor(result.summary.avg_difficulty) }}>{result.summary.avg_difficulty.toFixed(0)}</div>
             </div>
             <div className="stat-card">
-              <div className="stat-card-label">Easy / Med / Hard</div>
+              <div className="stat-card-label">{t("keywords.difficulty_mix")}</div>
               <div className="stat-card-value" style={{ fontSize: "1rem" }}>
                 <span style={{ color: "#22c55e" }}>{result.summary.easy_keywords}</span>
                 {" / "}
@@ -165,7 +165,7 @@ export default function KeywordsPage() {
               </div>
             </div>
             <div className="stat-card">
-              <div className="stat-card-label">Clusters</div>
+              <div className="stat-card-label">{t("keywords.clusters")}</div>
               <div className="stat-card-value">{result.clusters.length}</div>
             </div>
           </section>
@@ -173,7 +173,7 @@ export default function KeywordsPage() {
           <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
             {(["keywords", "clusters", "recommendations"] as const).map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)} className={`button ${activeTab === tab ? "button-primary" : "button-secondary"}`} style={{ textTransform: "capitalize" }}>
-                {tab}
+                {t(`keywords.${tab}`)}
               </button>
             ))}
           </div>
@@ -183,7 +183,7 @@ export default function KeywordsPage() {
               <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
                 {(["score", "search_volume", "difficulty"] as const).map(field => (
                   <button key={field} onClick={() => { setSortField(field); setSortAsc(sortField === field ? !sortAsc : field === "difficulty"); }} className={`button ${sortField === field ? "button-primary" : "button-secondary"}`} style={{ textTransform: "capitalize", fontSize: "0.75rem", padding: "4px 10px" }}>
-                    {field === "search_volume" ? "volume" : field} {sortField === field ? (sortAsc ? "↑" : "↓") : ""}
+                    {t(`keywords.${field === "search_volume" ? "volume" : field}`)} {sortField === field ? (sortAsc ? "↑" : "↓") : ""}
                   </button>
                 ))}
               </div>
@@ -191,12 +191,12 @@ export default function KeywordsPage() {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
                   <thead>
                     <tr style={{ borderBottom: "2px solid var(--border)", textAlign: "left" }}>
-                      <th style={{ padding: "6px 8px" }}>Keyword</th>
-                      <th style={{ padding: "6px 8px", textAlign: "right" }}>Volume</th>
-                      <th style={{ padding: "6px 8px", textAlign: "right" }}>Difficulty</th>
+                      <th style={{ padding: "6px 8px" }}>{t("keywords.keyword")}</th>
+                      <th style={{ padding: "6px 8px", textAlign: "right" }}>{t("keywords.volume")}</th>
+                      <th style={{ padding: "6px 8px", textAlign: "right" }}>{t("keywords.difficulty")}</th>
                       <th style={{ padding: "6px 8px", textAlign: "right" }}>CPC</th>
-                      <th style={{ padding: "6px 8px" }}>Intent</th>
-                      <th style={{ padding: "6px 8px", textAlign: "right" }}>Score</th>
+                      <th style={{ padding: "6px 8px" }}>{t("keywords.intent")}</th>
+                      <th style={{ padding: "6px 8px", textAlign: "right" }}>{t("keywords.score")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -225,10 +225,10 @@ export default function KeywordsPage() {
               {result.clusters.map((cl, i) => (
                 <section key={i} className="panel">
                   <div className="section-heading"><h3>{cl.name}</h3></div>
-                  <div className="metric-row"><span>Keywords</span><span>{cl.keywords.length}</span></div>
-                  <div className="metric-row"><span>Volume</span><span>{cl.total_volume.toLocaleString()}</span></div>
-                  <div className="metric-row"><span>Avg Difficulty</span><span style={{ color: getDiffColor(cl.avg_difficulty) }}>{cl.avg_difficulty}</span></div>
-                  <div className="metric-row"><span>Opportunity</span><span style={{ fontWeight: 700, color: cl.opportunity_score > 50 ? "#22c55e" : cl.opportunity_score > 20 ? "#f59e0b" : "#ef4444" }}>{cl.opportunity_score}</span></div>
+                  <div className="metric-row"><span>{t("keywords.keywords")}</span><span>{cl.keywords.length}</span></div>
+                  <div className="metric-row"><span>{t("keywords.volume")}</span><span>{cl.total_volume.toLocaleString()}</span></div>
+                  <div className="metric-row"><span>{t("keywords.avg_difficulty")}</span><span style={{ color: getDiffColor(cl.avg_difficulty) }}>{cl.avg_difficulty}</span></div>
+                  <div className="metric-row"><span>{t("keywords.opportunity")}</span><span style={{ fontWeight: 700, color: cl.opportunity_score > 50 ? "#22c55e" : cl.opportunity_score > 20 ? "#f59e0b" : "#ef4444" }}>{cl.opportunity_score}</span></div>
                   <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
                     {cl.keywords.slice(0, 5).map((kw, j) => (
                       <span key={j} style={{ fontSize: "0.7rem", padding: "2px 6px", borderRadius: 4, background: "var(--border)" }}>{kw}</span>

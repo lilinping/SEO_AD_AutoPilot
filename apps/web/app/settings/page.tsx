@@ -100,9 +100,9 @@ export default function SettingsPage() {
       <section className="panel">
         <div className="tab-nav">
           {[
-            { id: "setup", label: "配置指南" },
-            { id: "search", label: "搜索引擎" },
-            { id: "social", label: "社交媒体" },
+            { id: "setup", label: t("settings.setup_guide") },
+            { id: "search", label: t("settings.search_engines") },
+            { id: "social", label: t("settings.social_media") },
             { id: "ads", label: t("ads.title") },
             { id: "skills", label: t("settings.skills") },
             { id: "general", label: t("settings.configuration") },
@@ -123,22 +123,22 @@ export default function SettingsPage() {
         <section className="panel">
           <div className="section-heading">
             <div>
-              <div className="eyebrow">快速开始</div>
-              <h2>完整配置流程</h2>
+              <div className="eyebrow">{t("settings.quick_start")}</div>
+              <h2>{t("settings.setup_flow")}</h2>
             </div>
           </div>
           <div className="setup-steps">
             {[
-              { id: "1", title: "安装与启动", desc: "make api-dev && make web-dev", done: true },
-              { id: "2", title: "配置搜索引擎 API", desc: "Google/Bing/百度等", done: true },
-              { id: "3", title: "配置社交媒体 API", desc: "小红书/抖音/微博/X等", done: true },
-              { id: "4", title: "配置广告平台", desc: "AdSense/Mediavine等", done: true },
-              { id: "5", title: "首次分析", desc: "输入URL开始分析", active: true },
-              { id: "6", title: "查看结果", desc: "审查GEO评分和推荐", done: false },
+              { id: "1", title: t("settings.step_install"), desc: t("settings.step_install_desc"), done: true },
+              { id: "2", title: t("settings.step_search"), desc: t("settings.step_search_desc"), done: true },
+              { id: "3", title: t("settings.step_social"), desc: t("settings.step_social_desc"), done: true },
+              { id: "4", title: t("settings.step_ads"), desc: t("settings.step_ads_desc"), done: true },
+              { id: "5", title: t("settings.step_analyze"), desc: t("settings.step_analyze_desc"), active: true },
+              { id: "6", title: t("settings.step_results"), desc: t("settings.step_results_desc"), done: false },
             ].map((step) => (
               <div key={step.id} className={`setup-step ${step.done ? "done" : step.active ? "active" : ""}`}>
                 <div className={`step-icon ${step.done ? "good" : step.active ? "accent" : "neutral"}`}>
-                  {step.done ? "✓" : step.active ? "→" : step.id}
+                  {step.id}
                 </div>
                 <div className="step-content">
                   <strong>{step.title}</strong>

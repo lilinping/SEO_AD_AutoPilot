@@ -97,10 +97,14 @@ class ContentVersionStore:
     The file contains a list of ContentVersion dicts sorted by version ascending.
     """
 
-    def __init__(self, storage_path: str = "content_versions") -> None:
+    def __init__(self, storage_path: str = "content_versions", db: Any = None) -> None:
         self._path = Path(storage_path)
         self._path.mkdir(parents=True, exist_ok=True)
         self._cache: dict[str, list[ContentVersion]] = {}
+        # DB-004: optional Database instance to mirror versions into the
+        # `content_versions` table. When None, the store stays file-only.
+        self._db = db
+
 
     # ── Private helpers ───────────────────────────────────────────────────────
 
@@ -169,7 +173,40 @@ class ContentVersionStore:
         versions.append(cv)
         self._cache[content_id] = versions
         self._save_file(content_id)
+        self._mirror_to_db(cv, versions)
         return cv
+
+    def _mirror_to_db(self, cv: "ContentVersion", versions: list["ContentVersion"]) -> None:
+        """DB-004: mirror a saved version into the `content_versions` table.
+
+        Best-effort: never break the file-backed flow if the DB is
+        unavailable or the ORM row cannot be written.
+        """
+        if not self._db:
+            return
+        try:
+            from .db import ContentVersionRow
+
+            with self._db.session() as session:
+                # Deactivate previous rows for this content_id.
+                session.query(ContentVersionRow).filter(
+                    ContentVersionRow.content_id == cv.content_id,
+                    ContentVersionRow.is_active.is_(True),
+                ).update({ContentVersionRow.is_active: False})
+                session.add(ContentVersionRow(
+                    version_id=cv.version_id,
+                    content_id=cv.content_id,
+                    version=cv.version,
+                    content_json=cv.content,
+                    author=cv.author,
+                    change_note=cv.change_note or None,
+                    metadata_json=cv.metadata or {},
+                    is_active=cv.is_active,
+                    created_at=cv.created_at,
+                ))
+        except Exception:
+            pass
+
 
     async def history(
         self,

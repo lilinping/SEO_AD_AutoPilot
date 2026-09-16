@@ -1,16 +1,18 @@
 import type { PlanStep } from "@seo-ad-autopilot/contracts";
 
 import { compactLabel } from "@/lib/format";
+import { getServerI18n } from "@/lib/i18n/server";
 
 export function WorkflowTimeline({ steps }: { steps: PlanStep[] }) {
+  const { t } = getServerI18n();
   return (
     <section className="panel">
       <div className="section-heading">
         <div>
-          <div className="eyebrow">Workflow</div>
-          <h2>Skill chain</h2>
+          <div className="eyebrow">{t("project_detail.workflow")}</div>
+          <h2>{t("project_detail.skill_chain")}</h2>
         </div>
-        <p>Read, shape, guard, release, and observe as a single loop.</p>
+        <p>{t("project_detail.skill_chain_description")}</p>
       </div>
       <div className="timeline">
         {steps.map((step, index) => (
@@ -21,8 +23,8 @@ export function WorkflowTimeline({ steps }: { steps: PlanStep[] }) {
               <div className="timeline-copy">{step.action}</div>
               <div className="timeline-meta">
                 <span>{step.target}</span>
-                <span>{step.approvalRequired ? "approval" : "read-only"}</span>
-                <span>{step.rollbackSupported ? "rollback" : "no-rollback"}</span>
+                <span>{step.approvalRequired ? t("project_detail.approval_required") : t("project_detail.read_only")}</span>
+                <span>{step.rollbackSupported ? t("project_detail.rollback_supported") : t("project_detail.no_rollback")}</span>
               </div>
             </div>
           </article>

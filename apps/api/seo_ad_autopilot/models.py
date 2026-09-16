@@ -2563,6 +2563,7 @@ class ProjectDetail(APIModel):
     adaptive_components: Optional["AdaptiveComponentReport"] = None
     technical_seo: Optional["TechnicalSeoReport"] = None
     technical_seo_patch: Optional["TechnicalSeoPatchReport"] = None
+    seo_conversion_audit: Optional["SeoConversionAuditReport"] = None
 
 
 class RegressionCaseResult(APIModel):
@@ -2809,6 +2810,8 @@ class VisualRegressionCase(APIModel):
     sample_id: str
     name: str
     page_url: str
+    baseline_url: Optional[str] = None
+    preview_url: Optional[str] = None
     project_id: Optional[str] = None
     project_name: Optional[str] = None
     workflow_task_id: Optional[str] = None
@@ -3543,6 +3546,56 @@ class TechnicalSeoPatchReport(APIModel):
     strict_mode: bool
     patch_audit: dict[str, Any] = Field(default_factory=dict)
     steps: list[TechnicalSeoPatchStep] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class SeoConversionAuditFinding(APIModel):
+    finding_id: str
+    priority: Literal["P0", "P1", "P2", "P3"]
+    area: str
+    issue: str
+    impact: Literal["high", "medium", "low"]
+    evidence: list[str] = Field(default_factory=list)
+    recommended_action: str
+    verification: str
+    evidence_status: Literal["observed", "needs_verification"] = "needs_verification"
+    requires_approval: bool = False
+    rollback_required: bool = True
+
+
+class SeoBaselineReadiness(APIModel):
+    window_days: int
+    ready: bool = False
+    sources: list[str] = Field(default_factory=list)
+    note: str
+
+
+class ConversionAttributionReadiness(APIModel):
+    conversion_goal: str = "not_declared"
+    status: Literal["ready", "needs_verification"] = "needs_verification"
+    available_sources: list[str] = Field(default_factory=list)
+    missing_sources: list[str] = Field(default_factory=list)
+    recommended_precedence: list[str] = Field(default_factory=list)
+    note: str
+
+
+class SeoAuditReviewCheckpoint(APIModel):
+    day: int
+    focus: str
+    required_sources: list[str] = Field(default_factory=list)
+    ready: bool = False
+
+
+class SeoConversionAuditReport(APIModel):
+    report_id: str
+    project_id: str
+    task_id: str
+    generated_at: datetime = Field(default_factory=utcnow)
+    technical_report_id: str
+    findings: list[SeoConversionAuditFinding] = Field(default_factory=list)
+    baseline_readiness: list[SeoBaselineReadiness] = Field(default_factory=list)
+    attribution: ConversionAttributionReadiness
+    review_checkpoints: list[SeoAuditReviewCheckpoint] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 
 

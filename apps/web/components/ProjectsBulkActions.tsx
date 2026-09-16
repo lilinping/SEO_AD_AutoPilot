@@ -7,6 +7,7 @@ import { formatDateTime } from "@/lib/format";
 import { BulkConnectionTestAction } from "@/components/BulkConnectionTestAction";
 import { BulkSyncAction } from "@/components/BulkSyncAction";
 import type { ProjectSummary } from "@seo-ad-autopilot/contracts";
+import { useI18n } from "@/lib/i18n";
 
 export function ProjectsBulkActions({
   projects,
@@ -15,6 +16,7 @@ export function ProjectsBulkActions({
   projects: ProjectSummary[];
   initialSelectedProjectIds?: string[];
 }) {
+  const { locale, t } = useI18n();
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>(
     initialSelectedProjectIds.filter((id) => projects.some((project) => project.projectId == id)),
   );
@@ -39,21 +41,21 @@ export function ProjectsBulkActions({
       <div className="project-card">
         <div className="project-title">
           <div>
-            <div className="eyebrow">Selection</div>
-            <h3>Batch operate on selected projects</h3>
+            <div className="eyebrow">{t("projects.selection")}</div>
+            <h3>{t("projects.batch_title")}</h3>
           </div>
           <button className="button button-secondary" type="button" onClick={toggleAll}>
-            {allSelected ? "Clear selection" : "Select all"}
+            {allSelected ? t("projects.clear_selection") : t("projects.select_all")}
           </button>
         </div>
         <div className="project-copy">
           {selectedProjectIds.length
-            ? `${selectedProjectIds.length} project${selectedProjectIds.length === 1 ? "" : "s"} selected for bulk execution.`
-            : "Pick a subset of projects to run sync or connector tests together."}
+            ? `${selectedProjectIds.length} ${t("projects.selected_suffix")}`
+            : t("projects.selection_hint")}
         </div>
         <div className="stack" style={{ marginTop: 16 }}>
-          <BulkSyncAction projectIds={selectedProjectIds} label="Sync selected projects" />
-          <BulkConnectionTestAction projectIds={selectedProjectIds} label="Test selected connections" />
+          <BulkSyncAction projectIds={selectedProjectIds} label={t("projects.sync_selected")} />
+          <BulkConnectionTestAction projectIds={selectedProjectIds} label={t("projects.test_selected")} />
         </div>
       </div>
 
@@ -61,12 +63,12 @@ export function ProjectsBulkActions({
         <table className="table">
           <thead>
             <tr>
-              <th>Select</th>
-              <th>Project</th>
-              <th>Class</th>
-              <th>Stage</th>
-              <th>Risk</th>
-              <th>Updated</th>
+              <th>{t("projects.selection")}</th>
+              <th>{t("projects.project")}</th>
+              <th>{t("projects.class")}</th>
+              <th>{t("projects.stage")}</th>
+              <th>{t("projects.risk")}</th>
+              <th>{t("projects.updated")}</th>
               <th />
             </tr>
           </thead>
@@ -78,16 +80,16 @@ export function ProjectsBulkActions({
                   <td>
                     <label className="selection-cell">
                       <input type="checkbox" checked={selected} onChange={() => toggleSelected(project.projectId)} />
-                      <span>Target</span>
+                      <span>{t("projects.target")}</span>
                     </label>
                   </td>
                   <td>{project.name}</td>
                   <td>{project.siteClass}</td>
-                  <td>{project.latestStage}</td>
+                  <td>{t(`workflow_stages.${project.latestStage}`)}</td>
                   <td>{project.riskScore}</td>
-                  <td>{formatDateTime(project.updatedAt)}</td>
+                  <td>{formatDateTime(project.updatedAt, locale)}</td>
                   <td>
-                    <Link href={`/projects/${project.projectId}`}>Open</Link>
+                    <Link href={`/projects/${project.projectId}`}>{t("projects.open")}</Link>
                   </td>
                 </tr>
               );

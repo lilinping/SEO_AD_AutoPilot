@@ -7,10 +7,12 @@ from urllib.parse import urlparse
 import urllib.request
 import json
 
-from seo_ad_autopilot.skills.base import BaseSkill
-from seo_ad_autopilot.models import SkillResult
+from .base import Skill, SkillCategory, SkillInput, SkillOutput, SkillRiskLevel
+from ..data_provenance import evaluate_ecommerce_source_provenance
 
 logger = logging.getLogger(__name__)
+
+
 
 class CompetitorData(BaseModel):
     url: str
@@ -41,13 +43,12 @@ class EcommerceAnalysisResult(BaseModel):
     seo_recommendations: list[str] = Field(default_factory=list)
     ad_copy_recommendations: list[str] = Field(default_factory=list)
     api_source: str = "synthetic"
+    provenance: dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
 
-class EcommerceAnalysisSkill(BaseSkill):
-    """Skill for analyzing e-commerce product pages and fetching real platform metadata."""
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
-        super().__init__(config)
+class EcommerceAnalysisSkill(Skill):
+    """Skill for analyzing e-commerce product pages and fetching real platform metadata."""
 
     @property
     def name(self) -> str:
@@ -57,16 +58,25 @@ class EcommerceAnalysisSkill(BaseSkill):
     def description(self) -> str:
         return "Extract product metadata, analyze pricing, page structure, and generate ad copy + SEO recommendations."
 
-    def execute(self, params: dict[str, Any]) -> SkillResult:
+    @property
+    def category(self) -> SkillCategory:
+        return SkillCategory.ECOMMERCE
+
+    @property
+    def risk_level(self) -> SkillRiskLevel:
+        return SkillRiskLevel.READ_ONLY
+
+    def execute(self, skill_input: SkillInput) -> SkillOutput:
+        params = skill_input.params
         logger.info(f"Executing EcommerceAnalysis with params: {params}")
 
-        url = params.get("url", "").strip()
+        url = (params.get("url") or skill_input.url or "").strip()
         if not url:
-            return SkillResult(
+            return self._create_output(
                 success=False,
                 error="URL parameter is required",
-                data={}
             )
+
 
         parsed = urlparse(url)
         domain = parsed.netloc.lower()
@@ -135,6 +145,19 @@ class EcommerceAnalysisSkill(BaseSkill):
         seo_recs = self._generate_seo_recommendations(product_data, seo_score)
         ad_recs = self._generate_ad_copy_recommendations(product_data)
 
+        # Attach unified data-provenance. If no page content was actually
+        # retrieved this run, the served data is synthetic regardless of config.
+        provenance = evaluate_ecommerce_source_provenance()
+        if not html_content:
+            provenance = provenance.model_copy(
+                update={
+                    "source_tier": "synthetic",
+                    "gap_type": "provider_error",
+                    "gap_summary": "本次未能获取真实页面内容，当前分析基于合成估算建模。",
+                    "is_fresh": False,
+                }
+            )
+
         result = EcommerceAnalysisResult(
             url=url,
             platform=platform,
@@ -144,14 +167,16 @@ class EcommerceAnalysisSkill(BaseSkill):
             seo_recommendations=seo_recs,
             ad_copy_recommendations=ad_recs,
             api_source=api_source,
+            provenance=provenance.model_dump(by_alias=True),
             warnings=warnings
         )
 
-        return SkillResult(
+
+        return self._create_output(
             success=True,
-            data=result.model_dump(),
-            error=None
+            result=result.model_dump(),
         )
+
 
     def _parse_page_data(self, html: str, platform: str, url: str) -> ProductAnalysisData:
         data = ProductAnalysisData(title="Standard Product Title", price=99.99)

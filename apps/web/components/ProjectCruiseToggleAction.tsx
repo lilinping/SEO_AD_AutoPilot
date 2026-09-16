@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { updateProjectConnections } from "@/lib/api";
 import { ActionSummaryBadge } from "@/components/ActionSummaryBadge";
 import type { ProjectConnection } from "@seo-ad-autopilot/contracts";
+import { useI18n } from "@/lib/i18n";
 
 type ActionStatus = "idle" | "working" | "done" | "error";
 
@@ -21,13 +22,14 @@ export function ProjectCruiseToggleAction({
   connections: ProjectConnection[];
 }) {
   const router = useRouter();
+  const { t } = useI18n();
   const [status, setStatus] = useState<ActionStatus>("idle");
-  const [message, setMessage] = useState(autoCruiseEnabled ? "Auto cruise enabled" : "Auto cruise disabled");
+  const [message, setMessage] = useState("");
   const [isPending, startTransition] = useTransition();
 
   async function toggleCruise() {
     setStatus("working");
-    setMessage("Updating cruise policy...");
+    setMessage(t("actions.updating_cruise"));
     try {
       const result = await updateProjectConnections(projectId, {
         autoCruiseEnabled: !autoCruiseEnabled,
@@ -35,13 +37,13 @@ export function ProjectCruiseToggleAction({
         connections,
       });
       setStatus("done");
-      setMessage(result.state.autoCruiseEnabled ? "Auto cruise enabled for this project." : "Auto cruise disabled for this project.");
+      setMessage(result.state.autoCruiseEnabled ? t("actions.cruise_enabled_project") : t("actions.cruise_disabled_project"));
       startTransition(() => {
         router.refresh();
       });
     } catch (error) {
       setStatus("error");
-      setMessage(error instanceof Error ? error.message : "Failed to update auto cruise.");
+      setMessage(error instanceof Error ? error.message : t("actions.cruise_update_failed"));
     }
   }
 
@@ -49,15 +51,15 @@ export function ProjectCruiseToggleAction({
     <div className="action-rail">
       <ActionSummaryBadge
         tone={status === "working" ? "working" : status === "done" ? "done" : status === "error" ? "error" : "idle"}
-        title={status}
-        description={message}
+        title={t(`actions.status_${status}`)}
+        description={message || (autoCruiseEnabled ? t("actions.cruise_enabled") : t("actions.cruise_disabled"))}
       />
       <div className="action-caption">
         <span>API</span>
         <code>/api/projects/{projectId}/connections</code>
       </div>
       <button className="button button-secondary" disabled={isPending || status === "working"} onClick={() => void toggleCruise()}>
-        {autoCruiseEnabled ? "Disable auto cruise" : "Enable auto cruise"}
+        {autoCruiseEnabled ? t("actions.disable_cruise") : t("actions.enable_cruise")}
       </button>
     </div>
   );

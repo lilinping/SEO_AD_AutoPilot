@@ -6,6 +6,7 @@ import type { ApprovalStatus, DeploymentMode } from "@seo-ad-autopilot/contracts
 
 import { approveTask, deployTask, rollbackTask, API_BASE } from "@/lib/api";
 import { ActionSummaryBadge } from "@/components/ActionSummaryBadge";
+import { useI18n } from "@/lib/i18n";
 
 type ActionStatus = "idle" | "working" | "error" | "done";
 
@@ -23,6 +24,7 @@ export function TaskActions({
   riskScore: number;
 }) {
   const router = useRouter();
+  const { t } = useI18n();
   const [status, setStatus] = useState<ActionStatus>("idle");
   const [message, setMessage] = useState<string>("");
   const [isPending, startTransition] = useTransition();
@@ -35,23 +37,23 @@ export function TaskActions({
     try {
       await action();
       setStatus("done");
-      setMessage(`${label} complete`);
+      setMessage(`${label} ${t("actions.complete")}`);
       startTransition(() => {
         router.refresh();
       });
     } catch (error) {
       setStatus("error");
-      setMessage(error instanceof Error ? error.message : "Action failed");
+      setMessage(error instanceof Error ? error.message : t("actions.action_failed"));
     } finally {
       setIsWorking(false);
     }
   };
 
-  const approveLabel = approvalStatus === "pending" ? "Approve" : approvalStatus === "approved" ? "Approved" : "Rejected";
+  const approveLabel = approvalStatus === "pending" ? t("actions.approve") : approvalStatus === "approved" ? t("actions.approved") : t("actions.rejected");
 
   return (
     <div className="action-rail">
-      <ActionSummaryBadge tone={status === "working" ? "working" : status === "done" ? "done" : status === "error" ? "error" : "idle"} title={status} description={message || `risk ${riskScore}`} />
+      <ActionSummaryBadge tone={status === "working" ? "working" : status === "done" ? "done" : status === "error" ? "error" : "idle"} title={t(`actions.status_${status}`)} description={message || `${t("project_detail.risk")} ${riskScore}`} />
       <div className="action-caption">
         <span>API</span>
         <code>{API_BASE}</code>
@@ -63,16 +65,16 @@ export function TaskActions({
             <button
               className="button button-primary"
               disabled={isPending || isWorking}
-              onClick={() => void runAction("approval", () => approveTask(taskId, { decision: "approved", actor: "ui", note: "Approved from console" }))}
+              onClick={() => void runAction(t("actions.approval"), () => approveTask(taskId, { decision: "approved", actor: "ui", note: "Approved from console" }))}
             >
               {approveLabel}
             </button>
             <button
               className="button button-secondary"
               disabled={isPending || isWorking}
-              onClick={() => void runAction("reject", () => approveTask(taskId, { decision: "rejected", actor: "ui", note: "Rejected from console" }))}
+              onClick={() => void runAction(t("actions.reject"), () => approveTask(taskId, { decision: "rejected", actor: "ui", note: "Rejected from console" }))}
             >
-              Reject
+              {t("actions.reject")}
             </button>
           </>
         ) : null}
@@ -80,18 +82,18 @@ export function TaskActions({
           <button
             className="button button-primary"
             disabled={isPending || isWorking}
-            onClick={() => void runAction("deployment", () => deployTask(taskId, { actor: "ui", note: "Promote scheduled release" }))}
+            onClick={() => void runAction(t("actions.deployment"), () => deployTask(taskId, { actor: "ui", note: "Promote scheduled release" }))}
           >
-            Promote release
+            {t("actions.promote_release")}
           </button>
         ) : null}
         {(taskStatus === "deployed" || taskStatus === "monitoring" || taskStatus === "rolled_back") ? (
           <button
             className="button button-secondary"
             disabled={isPending || isWorking}
-            onClick={() => void runAction("rollback", () => rollbackTask(taskId, { actor: "ui", reason: "Console rollback" }))}
+            onClick={() => void runAction(t("actions.rollback"), () => rollbackTask(taskId, { actor: "ui", reason: "Console rollback" }))}
           >
-            Rollback
+            {t("actions.rollback")}
           </button>
         ) : null}
       </div>

@@ -15,6 +15,7 @@ import {
   fallbackWorkspaceConnectorsHealthReport,
 } from "@/lib/fallback";
 import { formatDateTime } from "@/lib/format";
+import { getServerI18n } from "@/lib/i18n/server";
 
 const statusClass = (passed: boolean) => (passed ? "status-badge good" : "status-badge danger");
 const maturityClass = (status: string) => {
@@ -24,6 +25,7 @@ const maturityClass = (status: string) => {
 };
 
 export default async function AcceptancePage() {
+  const { locale, t } = getServerI18n();
   let acceptance = fallbackAcceptanceReport();
   let benchmark = fallbackProductBenchmarkReport();
   let remaining = fallbackRemainingTaskReport();
@@ -66,51 +68,49 @@ export default async function AcceptancePage() {
   return (
     <div className="page">
       <section className="hero">
-        <div className="eyebrow">Acceptance</div>
-        <h1>上线验收与成熟度缺口</h1>
-        <p className="hero-copy">
-          汇总验收 gate、成熟产品对标和剩余阻断任务，直接暴露每项能力最薄弱的流程阶段。
-        </p>
+        <div className="eyebrow">{t("nav.acceptance")}</div>
+        <h1>{t("acceptance.title")}</h1>
+        <p className="hero-copy">{t("acceptance.hero_description")}</p>
         <div className="hero-meta">
           <span className={dataSource === "live" ? "status-badge good" : "status-badge warn"}>
-            {dataSource === "live" ? "Live API" : "Fallback data"}
+            {dataSource === "live" ? t("acceptance.live_api") : t("acceptance.fallback_data")}
           </span>
-          <span className="status-badge accent">Generated {formatDateTime(acceptance.generatedAt)}</span>
-          <span className={statusClass(acceptance.passed)}>{acceptance.passed ? "Passed" : "Blocked"}</span>
+          <span className="status-badge accent">{t("acceptance.generated")} {formatDateTime(acceptance.generatedAt, locale)}</span>
+          <span className={statusClass(acceptance.passed)}>{acceptance.passed ? t("acceptance.passed") : t("acceptance.blocked")}</span>
         </div>
       </section>
 
       <section className="panel">
         <div className="stat-grid">
           <div className="stat-card">
-            <div className="stat-label">Gates</div>
+            <div className="stat-label">{t("acceptance.gates")}</div>
             <div className="stat-value">{acceptance.gates.length}</div>
-            <div className="stat-caption">上线验收检查项</div>
+            <div className="stat-caption">{t("acceptance.gate_caption")}</div>
           </div>
           <div className="stat-card">
-            <div className="stat-label">Failed</div>
+            <div className="stat-label">{t("acceptance.failed")}</div>
             <div className="stat-value">{failedGates.length}</div>
-            <div className="stat-caption">当前阻断 gate</div>
+            <div className="stat-caption">{t("acceptance.failed_caption")}</div>
           </div>
           <div className="stat-card">
-            <div className="stat-label">Maturity</div>
+            <div className="stat-label">{t("acceptance.maturity")}</div>
             <div className="stat-value">{Math.round(benchmark.averageMaturityScore)}</div>
-            <div className="stat-caption">成熟产品对标平均分</div>
+            <div className="stat-caption">{t("acceptance.maturity_caption")}</div>
           </div>
           <div className="stat-card">
-            <div className="stat-label">Blocking tasks</div>
+            <div className="stat-label">{t("acceptance.blocking_tasks")}</div>
             <div className="stat-value">{remaining.blockingCount}</div>
-            <div className="stat-caption">按缺口生成的阻断任务</div>
+            <div className="stat-caption">{t("acceptance.blocking_tasks_caption")}</div>
           </div>
           <div className="stat-card">
-            <div className="stat-label">Read evidence</div>
+            <div className="stat-label">{t("acceptance.read_evidence")}</div>
             <div className="stat-value">{acceptance.readRealEvidenceCount}</div>
-            <div className="stat-caption">真实读取证据样本</div>
+            <div className="stat-caption">{t("acceptance.read_evidence_caption")}</div>
           </div>
           <div className="stat-card">
-            <div className="stat-label">Write evidence</div>
+            <div className="stat-label">{t("acceptance.write_evidence")}</div>
             <div className="stat-value">{acceptance.writeRealEvidenceCount}</div>
-            <div className="stat-caption">真实写回证据样本</div>
+            <div className="stat-caption">{t("acceptance.write_evidence_caption")}</div>
           </div>
         </div>
       </section>
@@ -118,8 +118,8 @@ export default async function AcceptancePage() {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <div className="eyebrow">Blocking gates</div>
-            <h2>当前验收阻断</h2>
+            <div className="eyebrow">{t("acceptance.blocking_gates")}</div>
+            <h2>{t("acceptance.current_blockers")}</h2>
           </div>
         </div>
         <div className="stack">
@@ -130,30 +130,30 @@ export default async function AcceptancePage() {
                 <span className="status-badge danger">{gate.gateId}</span>
               </div>
               <div className="metric-row">
-                <span>Expected</span>
+                <span>{t("acceptance.expected")}</span>
                 <strong>{gate.expected}</strong>
               </div>
               <div className="metric-row">
-                <span>Actual</span>
+                <span>{t("acceptance.actual")}</span>
                 <strong>{gate.actual}</strong>
               </div>
               {gate.quickActionPath ? (
                 <div className="project-foot">
-                  <span>{gate.notes[0] ?? "Needs remediation"}</span>
-                  <Link href={gate.quickActionPath}>{gate.quickActionLabel ?? "Open"}</Link>
+                  <span>{gate.notes[0] ?? t("acceptance.needs_remediation")}</span>
+                  <Link href={gate.quickActionPath}>{gate.quickActionLabel ?? t("acceptance.open")}</Link>
                 </div>
               ) : null}
             </article>
           ))}
-          {failedGates.length === 0 ? <div className="empty-state">全部验收 gate 已通过</div> : null}
+          {failedGates.length === 0 ? <div className="empty-state">{t("acceptance.all_gates_passed")}</div> : null}
         </div>
       </section>
 
       <section className="panel">
         <div className="section-heading">
           <div>
-            <div className="eyebrow">Remaining work</div>
-            <h2>阻断任务与最弱阶段</h2>
+            <div className="eyebrow">{t("acceptance.remaining_work")}</div>
+            <h2>{t("acceptance.weakest_stage_tasks")}</h2>
           </div>
         </div>
         <div className="grid-three">
@@ -163,26 +163,26 @@ export default async function AcceptancePage() {
                 <strong>{task.title}</strong>
                 <span className="status-badge warn">{task.priority.toUpperCase()}</span>
               </div>
-              <div className="project-copy">{task.nextAction ?? task.remainingGaps[0] ?? "等待补齐"}</div>
+              <div className="project-copy">{task.nextAction ?? task.remainingGaps[0] ?? t("acceptance.waiting")}</div>
               <div className="metric-row">
-                <span>Weakest stage</span>
-                <strong>{task.weakestStageTitle ?? task.weakestStageId ?? "Unknown"}</strong>
+                <span>{t("acceptance.weakest_stage")}</span>
+                <strong>{task.weakestStageTitle ?? task.weakestStageId ?? t("acceptance.unknown")}</strong>
               </div>
               <div className="project-foot">
-                <span>{task.acceptanceGateIds.length} failed gates</span>
-                {task.quickActionPath ? <Link href={task.quickActionPath}>{task.quickActionLabel ?? "Open"}</Link> : null}
+                <span>{task.acceptanceGateIds.length} {t("acceptance.failed_gates_suffix")}</span>
+                {task.quickActionPath ? <Link href={task.quickActionPath}>{task.quickActionLabel ?? t("acceptance.open")}</Link> : null}
               </div>
             </article>
           ))}
-          {blockingTasks.length === 0 ? <div className="empty-state">暂无阻断任务</div> : null}
+          {blockingTasks.length === 0 ? <div className="empty-state">{t("acceptance.no_blocking_tasks")}</div> : null}
         </div>
       </section>
 
       <section className="panel">
         <div className="section-heading">
           <div>
-            <div className="eyebrow">Provider evidence</div>
-            <h2>真实 Provider 证据缺口</h2>
+            <div className="eyebrow">{t("acceptance.provider_evidence")}</div>
+            <h2>{t("acceptance.provider_evidence_gaps")}</h2>
           </div>
         </div>
         <div className="grid-three">
@@ -192,32 +192,32 @@ export default async function AcceptancePage() {
                 <strong>{provider.provider}</strong>
                 <span className="status-badge warn">{provider.evidenceGapType}</span>
               </div>
-              <div className="project-copy">{provider.evidenceGapSummary ?? provider.smokeAction ?? "Evidence refresh required"}</div>
+              <div className="project-copy">{provider.evidenceGapSummary ?? provider.smokeAction ?? t("acceptance.evidence_refresh_required")}</div>
               <div className="metric-row">
-                <span>Real / Total</span>
+                <span>{t("acceptance.real_total")}</span>
                 <strong>
                   {provider.realConnectionCount} / {provider.totalConnectionCount}
                 </strong>
               </div>
               <div className="metric-row">
-                <span>Strict-ready</span>
+                <span>{t("acceptance.strict_ready")}</span>
                 <strong>{provider.strictEligibleCount}</strong>
               </div>
               <div className="project-foot">
                 <span>{provider.acceptanceGateId ?? "provider evidence"}</span>
-                {provider.smokeActionPath ? <Link href={provider.smokeActionPath}>{provider.smokeActionLabel ?? "Run smoke"}</Link> : null}
+                {provider.smokeActionPath ? <Link href={provider.smokeActionPath}>{provider.smokeActionLabel ?? t("acceptance.run_smoke")}</Link> : null}
               </div>
             </article>
           ))}
-          {providerEvidenceGaps.length === 0 ? <div className="empty-state">真实 provider 证据已覆盖当前连接</div> : null}
+          {providerEvidenceGaps.length === 0 ? <div className="empty-state">{t("acceptance.provider_evidence_complete")}</div> : null}
         </div>
       </section>
 
       <section className="panel" id="visual-farm-runtime">
         <div className="section-heading">
           <div>
-            <div className="eyebrow">Visual farm</div>
-            <h2>视觉农场生产化缺口</h2>
+            <div className="eyebrow">{t("acceptance.visual_farm")}</div>
+            <h2>{t("acceptance.visual_farm_gaps")}</h2>
           </div>
           <span className={visualFarmBlocked ? "status-badge danger" : "status-badge good"}>
             {visualFarmStatus.readinessGapType ?? "none"}
@@ -226,14 +226,14 @@ export default async function AcceptancePage() {
         <div className="grid-three">
           <article className="audit-card">
             <div className="audit-head">
-              <strong>Strict publish readiness</strong>
+              <strong>{t("acceptance.strict_publish_readiness")}</strong>
               <span className={visualFarmStatus.strictPublishReady ? "status-badge good" : "status-badge danger"}>
-                {visualFarmStatus.strictPublishReady ? "ready" : "blocked"}
+                {visualFarmStatus.strictPublishReady ? t("acceptance.ready") : t("acceptance.blocked")}
               </span>
             </div>
             <div className="project-copy">{visualFarmStatus.readinessGapSummary ?? "Visual farm readiness status is unavailable."}</div>
             <div className="metric-row">
-              <span>Acceptance gate</span>
+              <span>{t("acceptance.acceptance_gate")}</span>
               <strong>{visualFarmStatus.acceptanceGateId ?? "visual_farm_runtime_ready"}</strong>
             </div>
             <div className="project-foot">
@@ -245,36 +245,36 @@ export default async function AcceptancePage() {
           </article>
           <article className="audit-card">
             <div className="audit-head">
-              <strong>Probe freshness</strong>
+              <strong>{t("acceptance.probe_freshness")}</strong>
               <span className={visualFarmStatus.probeFresh ? "status-badge good" : "status-badge warn"}>
-                {visualFarmStatus.probeFresh ? "fresh" : "stale"}
+                {visualFarmStatus.probeFresh ? t("acceptance.fresh") : t("acceptance.stale")}
               </span>
             </div>
             <div className="metric-row">
-              <span>Connected / Blocking</span>
+              <span>{t("acceptance.connected_blocking")}</span>
               <strong>
                 {visualFarmStatus.lastProbeConnectedCount} / {visualFarmStatus.lastProbeBlockingCount}
               </strong>
             </div>
             <div className="metric-row">
-              <span>Freshness window</span>
+              <span>{t("acceptance.freshness_window")}</span>
               <strong>{visualFarmStatus.probeFreshnessMinutes}m</strong>
             </div>
-            <div className="project-copy">Last probe {formatDateTime(visualFarmStatus.lastProbeExecutedAt ?? visualFarmStatus.generatedAt)}</div>
+            <div className="project-copy">{t("acceptance.last_probe")} {formatDateTime(visualFarmStatus.lastProbeExecutedAt ?? visualFarmStatus.generatedAt, locale)}</div>
           </article>
           <article className="audit-card">
             <div className="audit-head">
-              <strong>Run evidence</strong>
+              <strong>{t("acceptance.run_evidence")}</strong>
               <span className={visualFarmStatus.lastRunFailedCaseCount ? "status-badge danger" : "status-badge good"}>
-                {visualFarmStatus.runCount} runs
+                {visualFarmStatus.runCount} {t("acceptance.runs_suffix")}
               </span>
             </div>
             <div className="metric-row">
-              <span>Connected cases</span>
+              <span>{t("acceptance.connected_cases")}</span>
               <strong>{visualFarmStatus.lastRunConnectedCaseCount}</strong>
             </div>
             <div className="metric-row">
-              <span>Failed / Fallback / Blocked</span>
+              <span>{t("acceptance.failed_fallback_blocked")}</span>
               <strong>
                 {visualFarmStatus.lastRunFailedCaseCount} / {visualFarmStatus.lastRunFallbackCaseCount} / {visualFarmStatus.lastRunStrictBlockedCaseCount}
               </strong>
@@ -287,8 +287,8 @@ export default async function AcceptancePage() {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <div className="eyebrow">Product benchmark</div>
-            <h2>成熟能力流程诊断</h2>
+            <div className="eyebrow">{t("acceptance.product_benchmark")}</div>
+            <h2>{t("acceptance.capability_diagnostics")}</h2>
           </div>
         </div>
         <div className="stack">
@@ -299,12 +299,12 @@ export default async function AcceptancePage() {
                 <span className={maturityClass(capability.currentStatus)}>{capability.currentStatus}</span>
               </div>
               <div className="metric-row">
-                <span>Maturity score</span>
+                <span>{t("acceptance.maturity_score")}</span>
                 <strong>{capability.maturityScore}</strong>
               </div>
               <div className="metric-row">
-                <span>Weakest stage</span>
-                <strong>{capability.weakestStageTitle ?? capability.weakestStageId ?? "Unknown"}</strong>
+                <span>{t("acceptance.weakest_stage")}</span>
+                <strong>{capability.weakestStageTitle ?? capability.weakestStageId ?? t("acceptance.unknown")}</strong>
               </div>
               <div className="grid-three">
                 {capability.workflowStages.map((stage) => (
@@ -317,7 +317,7 @@ export default async function AcceptancePage() {
               </div>
               <div className="project-foot">
                 <span>{capability.comparableProducts.join(" / ")}</span>
-                {recommendedIds.has(capability.capabilityId) ? <span className="status-badge accent">Recommended next</span> : null}
+                {recommendedIds.has(capability.capabilityId) ? <span className="status-badge accent">{t("acceptance.recommended_next")}</span> : null}
               </div>
             </article>
           ))}

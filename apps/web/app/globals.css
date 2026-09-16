@@ -77,6 +77,9 @@ code {
   border-right: 1px solid var(--panel-border);
   background: linear-gradient(180deg, rgba(8, 10, 13, 0.96), rgba(14, 17, 21, 0.88));
   backdrop-filter: blur(18px);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
 }
 
 .brand {
@@ -90,6 +93,8 @@ code {
   font-family: var(--display-font);
   font-size: 1.2rem;
   letter-spacing: 0.04em;
+  color: var(--text);
+  text-decoration: none;
 }
 
 .brand-copy {
@@ -102,6 +107,15 @@ code {
   display: grid;
   gap: 4px;
   margin-bottom: 16px;
+}
+
+.nav-section-label {
+  margin: 4px 10px 6px;
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .nav-link {
@@ -119,6 +133,56 @@ code {
 .nav-link:hover {
   border-color: var(--panel-border-strong);
   background: rgba(255, 255, 255, 0.04);
+}
+
+.nav-link.active {
+  border-color: rgba(241, 201, 107, 0.3);
+  background: rgba(241, 201, 107, 0.1);
+  color: var(--accent);
+}
+
+.nav-groups {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.nav-group {
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.nav-group[open] {
+  border-color: var(--panel-border);
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.nav-group summary {
+  padding: 8px 10px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 650;
+  list-style-position: inside;
+}
+
+.nav-group summary:hover,
+.nav-group summary:focus-visible {
+  color: var(--text);
+}
+
+.nav-group-links {
+  display: grid;
+  gap: 3px;
+  padding: 0 6px 6px;
+}
+
+.nav-link-secondary {
+  padding: 7px 10px 7px 20px;
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 
 .sidebar-card {
@@ -1004,6 +1068,69 @@ code {
   font-size: clamp(2rem, 3vw, 3.2rem);
 }
 
+.project-flow-panel {
+  scroll-margin-top: 18px;
+}
+
+.project-flow-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.project-flow-step {
+  min-height: 138px;
+  padding: 16px;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  text-decoration: none;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.project-flow-step:hover,
+.project-flow-step:focus-visible {
+  border-color: rgba(241, 201, 107, 0.48);
+  background: rgba(241, 201, 107, 0.07);
+  transform: translateY(-2px);
+}
+
+.project-flow-step strong {
+  font-family: var(--display-font);
+  font-size: 1.05rem;
+}
+
+.project-flow-step > span:not(.pill):not(.project-flow-index) {
+  color: var(--muted);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.project-flow-index {
+  color: var(--accent);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+}
+
+#profile,
+#sources,
+#opportunities,
+#preview,
+#approval,
+#release,
+#monitoring,
+#advanced,
+#billing,
+#runs,
+#audit {
+  scroll-margin-top: 18px;
+}
+
 .project-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
@@ -1038,6 +1165,7 @@ code {
 
   .hero-grid,
   .project-layout,
+  .project-flow-grid,
   .preview-grid,
   .preview-meta,
   .stat-grid,

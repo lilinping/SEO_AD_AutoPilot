@@ -104,7 +104,9 @@ class TestRouters:
     def test_create_app_registers_domain_routers(self):
         from apps.api.seo_ad_autopilot.app import create_app
 
-        route_paths = {getattr(route, "path", "") for route in create_app().routes}
+        # FastAPI 0.139 keeps included routers as lazy wrapper entries in
+        # ``app.routes``; OpenAPI is the stable public route registry.
+        route_paths = set(create_app().openapi()["paths"])
         for path in [
             "/api/agents/list",
             "/api/analysis/site",

@@ -5,10 +5,11 @@ import os
 import math
 from urllib.parse import urlparse
 
-from seo_ad_autopilot.skills.base import BaseSkill
-from seo_ad_autopilot.models import SkillResult, SearchResult
-from seo_ad_autopilot.search_engines.google import GoogleSearchEngine
-from seo_ad_autopilot.search_engines.bing import BingSearchEngine
+from .base import Skill, SkillCategory, SkillInput, SkillOutput, SkillRiskLevel
+from ..search_engines.base import SearchQuery, SearchResult
+from ..search_engines.google import GoogleSearchEngine
+from ..search_engines.bing import BingSearchEngine
+from ..data_provenance import DataProvenance, evaluate_search_source_provenance
 
 logger = logging.getLogger(__name__)
 
@@ -33,16 +34,24 @@ class KeywordAnalysisResult(BaseModel):
     overall_competition: float = 0.0
     serp_features_distribution: dict[str, int] = Field(default_factory=dict)
     api_source: str = "synthetic"
+    provenance: dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
 
-class KeywordResearchSkill(BaseSkill):
+
+class KeywordResearchSkill(Skill):
     """Skill for conducting keyword research and search market analysis using real APIs."""
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
-        super().__init__(config)
-        # Initialize real search engines
-        self.google_engine = GoogleSearchEngine()
-        self.bing_engine = BingSearchEngine()
+    def __init__(self) -> None:
+        super().__init__()
+        # Initialize real search engines. Read credentials from either the
+        # SEO_AD_BOT_* prefixed names or the bare names so the skill and the
+        # underlying engines agree on what is actually configured.
+        google_key = os.getenv("SEO_AD_BOT_GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
+        google_cx = os.getenv("SEO_AD_BOT_GOOGLE_CX") or os.getenv("GOOGLE_CX") or ""
+        bing_key = os.getenv("SEO_AD_BOT_BING_API_KEY") or os.getenv("BING_API_KEY") or ""
+        self.google_engine = GoogleSearchEngine(api_key=google_key, cx=google_cx)
+        self.bing_engine = BingSearchEngine(api_key=bing_key)
+
 
     @property
     def name(self) -> str:
@@ -52,34 +61,57 @@ class KeywordResearchSkill(BaseSkill):
     def description(self) -> str:
         return "Conduct keyword research, analyze search volumes, difficulty, intent, and cluster keyword topical taxonomy."
 
-    def execute(self, params: dict[str, Any]) -> SkillResult:
+    @property
+    def category(self) -> SkillCategory:
+        return SkillCategory.ANALYZE
+
+    @property
+    def risk_level(self) -> SkillRiskLevel:
+        return SkillRiskLevel.READ_ONLY
+
+    def execute(self, skill_input: SkillInput) -> SkillOutput:
+        params = skill_input.params
         logger.info(f"Executing KeywordResearch with params: {params}")
 
-        query_keyword = params.get("query", "").strip()
-        target_market = params.get("target_market", "US").strip().upper()
-        language = params.get("language", "en").strip().lower()
+        query_keyword = (params.get("query") or params.get("keyword") or params.get("seed") or "").strip()
+        target_market = str(params.get("target_market", "US")).strip().upper()
+        language = str(params.get("language", "en")).strip().lower()
 
         if not query_keyword:
-            return SkillResult(
+            return self._create_output(
                 success=False,
                 error="Query keyword is required",
-                data={}
             )
 
         warnings = []
         api_source = "synthetic"
 
-        # Check API Keys and determine source
-        has_google = bool(os.getenv("SEO_AD_BOT_GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY"))
-        has_bing = bool(os.getenv("SEO_AD_BOT_BING_API_KEY") or os.getenv("BING_API_KEY"))
+        # Determine the real data source from each engine's *actual* readiness,
+        # not merely from the presence of an API key. Google Custom Search only
+        # works when BOTH the API key and the CX (search engine id) are set, so
+        # relying on the key alone silently mislabels synthetic estimates as
+        # real Google data. Detect partial configuration and surface it instead.
+        has_google_key = bool(os.getenv("SEO_AD_BOT_GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+        google_ready = self.google_engine.is_available()
+        bing_ready = self.bing_engine.is_available()
 
-        if has_google:
+        if google_ready:
             api_source = "google_custom_search"
-        elif has_bing:
+        elif bing_ready:
             api_source = "bing_web_search"
         else:
             api_source = "synthetic_fallback"
-            warnings.append("未配置 Google/Bing 真实搜索凭证 (SEO_AD_BOT_GOOGLE_API_KEY / SEO_AD_BOT_BING_API_KEY)，当前结果由高拟真合成引擎生成。请在系统设置中填入 API 凭证以激活真实搜索引擎链路。")
+            if has_google_key and not google_ready:
+                warnings.append(
+                    "已配置 Google API Key 但缺少 SEO_AD_BOT_GOOGLE_CX（Custom Search 引擎 ID），"
+                    "Google 真实搜索链路未激活，当前结果由高拟真合成引擎生成。请补全 CX 以启用真实 Google 搜索。"
+                )
+            else:
+                warnings.append(
+                    "未配置 Google/Bing 真实搜索凭证 (SEO_AD_BOT_GOOGLE_API_KEY + SEO_AD_BOT_GOOGLE_CX / SEO_AD_BOT_BING_API_KEY)，"
+                    "当前结果由高拟真合成引擎生成。请在系统设置中填入 API 凭证以激活真实搜索引擎链路。"
+                )
+
 
         # Generate related and long tail candidates
         seed_keywords = [query_keyword]
@@ -123,6 +155,21 @@ class KeywordResearchSkill(BaseSkill):
 
         overall_comp = sum(k.competition for k in keywords_data) / max(len(keywords_data), 1)
 
+        # Attach a unified data-provenance label so downstream consumers can
+        # tell real data from synthetic estimates without re-deriving it.
+        provenance = evaluate_search_source_provenance()
+        if provenance.is_real and not all_serp_results:
+            # Real source is configured but returned nothing this run: the data
+            # actually served fell back to estimates, so do not claim "real".
+            provenance = DataProvenance(
+                source_tier="partial",
+                provider=provenance.provider,
+                is_fresh=False,
+                gap_type="provider_error",
+                gap_summary="真实搜索源已配置但本次未返回结果，当前数据包含合成估算。",
+                remediation="检查搜索凭证配额/网络连通性后重试。",
+            )
+
         result = KeywordAnalysisResult(
             query=query_keyword,
             target_market=target_market,
@@ -133,17 +180,17 @@ class KeywordResearchSkill(BaseSkill):
             overall_competition=overall_comp,
             serp_features_distribution=serp_features_dist,
             api_source=api_source,
+            provenance=provenance.model_dump(by_alias=True),
             warnings=warnings
         )
 
-        return SkillResult(
+
+        return self._create_output(
             success=True,
-            data=result.model_dump(),
-            error=None
+            result=result.model_dump(),
         )
 
     def _fetch_real_serp(self, keyword: str, source: str) -> list[SearchResult]:
-        from seo_ad_autopilot.models import SearchQuery
         try:
             query = SearchQuery(query=keyword)
             if source == "google_custom_search":
@@ -202,7 +249,7 @@ class KeywordResearchSkill(BaseSkill):
         elif any(w in keyword_lower for w in ["how", "why", "what", "guide", "tutorial", "learn"]):
             data.intent = "informational"
         else:
-            data.intent = "navitional" if word_count == 1 else "informational"
+            data.intent = "navigational" if word_count == 1 else "informational"
 
         # Features
         features = ["organic"]

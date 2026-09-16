@@ -9,6 +9,10 @@ services:
       - DATABASE_URL=sqlite:///./var/seo-ad-autopilot.db
       - REDIS_URL=redis://redis:6379/0
       - SEO_AD_BOT_API_KEY=dev-key
+      - SEO_AD_BOT_VISUAL_FARM_ENDPOINT=http://visual-farm:8010/
+      - SEO_AD_BOT_VISUAL_FARM_ACCESS_TOKEN=${VISUAL_FARM_API_KEY:-dev-visual-farm-key}
+      - SEO_AD_BOT_RUNTIME_EDGE_GATEWAY_URL=http://runtime-edge:8080/deploy
+      - SEO_AD_BOT_RUNTIME_EDGE_GATEWAY_ACCESS_TOKEN=${RUNTIME_EDGE_API_KEY:-dev-runtime-edge-key}
     volumes:
       - ./var:/app/var
     depends_on:
@@ -36,6 +40,53 @@ services:
       - NEXT_PUBLIC_AUTOPILOT_API_URL=http://api:8000/api
     depends_on:
       - api
+
+  visual-farm:
+    build:
+      context: .
+      dockerfile: Dockerfile.visual-farm
+    environment:
+      - SEO_AD_BOT_VISUAL_FARM_API_KEY=${VISUAL_FARM_API_KEY:-dev-visual-farm-key}
+      - SEO_AD_BOT_VISUAL_FARM_ALLOWED_HOSTS=${VISUAL_FARM_ALLOWED_HOSTS:-api,web,host.docker.internal}
+      - SEO_AD_BOT_VISUAL_FARM_PUBLIC_BASE_URL=http://visual-farm:8010
+      - SEO_AD_BOT_VISUAL_FARM_SMOKE_URL=${VISUAL_FARM_SMOKE_URL:-about:blank}
+      - SEO_AD_BOT_VISUAL_FARM_READINESS_CACHE_SECONDS=${VISUAL_FARM_READINESS_CACHE_SECONDS:-30}
+    volumes:
+      - ./var/visual-farm:/data
+    expose:
+      - "8010"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import os,urllib.request; r=urllib.request.Request(\"http://127.0.0.1:8010/readyz\",headers={\"X-API-Key\":os.environ[\"SEO_AD_BOT_VISUAL_FARM_API_KEY\"]}); assert urllib.request.urlopen(r,timeout=20).status == 200'"]
+      interval: 30s
+      timeout: 25s
+      retries: 3
+      start_period: 20s
+
+  runtime-edge:
+    build:
+      context: .
+      dockerfile: Dockerfile.runtime-edge
+    ports:
+      - "8080:8080"
+    environment:
+      - SEO_AD_BOT_EDGE_API_BASE_URL=http://api:8000
+      - SEO_AD_BOT_EDGE_STRICT_ROUTES_ONLY=${RUNTIME_EDGE_STRICT_ROUTES_ONLY:-true}
+      - SEO_AD_BOT_EDGE_ROUTE_MAP_CACHE_SECONDS=${RUNTIME_EDGE_ROUTE_MAP_CACHE_SECONDS:-30}
+      - SEO_AD_BOT_EDGE_API_KEY=${RUNTIME_EDGE_API_KEY:-dev-runtime-edge-key}
+      - SEO_AD_BOT_EDGE_STATE_DIR=/data
+      - SEO_AD_BOT_EDGE_MAX_DEPLOYMENTS=${RUNTIME_EDGE_MAX_DEPLOYMENTS:-50}
+      - SEO_AD_BOT_EDGE_VERIFY_DNS_TLS=${RUNTIME_EDGE_VERIFY_DNS_TLS:-false}
+      - SEO_AD_BOT_EDGE_EXPECTED_PUBLIC_IPS=${RUNTIME_EDGE_EXPECTED_PUBLIC_IPS:-}
+      - SEO_AD_BOT_EDGE_DNS_TLS_TIMEOUT_SECONDS=${RUNTIME_EDGE_DNS_TLS_TIMEOUT_SECONDS:-5}
+    volumes:
+      - ./var/runtime-edge:/data
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import os,urllib.request; r=urllib.request.Request(\"http://127.0.0.1:8080/readyz\",headers={\"X-API-Key\":os.environ[\"SEO_AD_BOT_EDGE_API_KEY\"]}); assert urllib.request.urlopen(r,timeout=10).status == 200'"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
 
 volumes:
   redis_data:

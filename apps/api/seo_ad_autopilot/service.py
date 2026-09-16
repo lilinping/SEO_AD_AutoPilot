@@ -15,7 +15,7 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Literal, Optional
 from urllib.error import HTTPError
-from urllib.parse import urlparse, urlencode
+from urllib.parse import urljoin, urlparse, urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
@@ -152,6 +152,11 @@ from .models import (
     TechnicalSeoReport,
     TechnicalSeoPatchReport,
     TechnicalSeoPatchStep,
+    SeoAuditReviewCheckpoint,
+    SeoBaselineReadiness,
+    SeoConversionAuditFinding,
+    SeoConversionAuditReport,
+    ConversionAttributionReadiness,
     ProjectCreateRequest,
     ProjectConnections,
     ProjectConnectionEvidenceEntry,
@@ -2629,6 +2634,11 @@ class WorkflowService:
         canonical_provider_name = self._normalize_billing_gateway_provider_name(provider_name)
         env_prefix = re.sub(r"[^A-Z0-9]+", "_", canonical_provider_name.upper()).strip("_") or "MANUAL"
         notes = list(route.notes)
+        adapter = (
+            self._billing_gateway_route_note_value(notes, "adapter")
+            or os.getenv(f"SEO_AD_BOT_BILLING_GATEWAY_{env_prefix}_ADAPTER", "").strip()
+            or "http"
+        ).lower()
         endpoint = (
             self._billing_gateway_route_note_value(notes, "endpoint")
             or os.getenv(f"SEO_AD_BOT_BILLING_GATEWAY_{env_prefix}_URL", "").strip()
@@ -2645,6 +2655,7 @@ class WorkflowService:
         token = (
             self._billing_gateway_route_note_value(notes, "token")
             or os.getenv(f"SEO_AD_BOT_BILLING_GATEWAY_{env_prefix}_TOKEN", "").strip()
+            or os.getenv(f"SEO_AD_BOT_BILLING_GATEWAY_{env_prefix}_SECRET_KEY", "").strip()
             or self._billing_gateway_route_note_value(notes, "credentialsJson")
             or self._billing_gateway_route_note_value(notes, "serviceAccountJson")
             or os.getenv(f"SEO_AD_BOT_BILLING_GATEWAY_{env_prefix}_CREDENTIALS_JSON", "").strip()
@@ -2701,6 +2712,7 @@ class WorkflowService:
             "authSource": auth_source,
             "envPrefix": env_prefix,
             "providerName": canonical_provider_name,
+            "adapter": adapter,
         }
 
     def _visual_farm_runtime_credentials(self) -> tuple[str, str, str]:
@@ -3154,6 +3166,13 @@ class WorkflowService:
             "routeReadyCount": gateway_report.route_ready_count,
             "gatewayReady": gateway_report.gateway_ready,
             "routes": [route.model_dump(mode="json", by_alias=True) for route in gateway_report.routes],
+            "siteRoutes": [
+                item.model_dump(mode="json", by_alias=True)
+                for item in self.build_workspace_runtime_edge_route_map_report(
+                    project_id=gateway_report.project_id,
+                    strict_routes_only=gateway_report.policy.strict_routing,
+                ).items
+            ],
             "warnings": list(gateway_report.warnings),
             "recommendations": list(gateway_report.recommendations),
         }
@@ -3340,6 +3359,18 @@ class WorkflowService:
         metadata_payload = dict(metadata or {})
         normalized_provider_payload = dict(provider_payload or {})
         config = self._billing_gateway_provider_runtime_config(provider_name, route)
+        if provider_name == "stripe" and config.get("adapter") == "stripe_sdk":
+            return self._execute_stripe_sdk_settlement(
+                config=config,
+                project_id=project_id,
+                project_name=project_name,
+                currency=currency,
+                due_cents=due_cents,
+                memo=memo,
+                destination_type=destination_type,
+                destination_ref=destination_ref,
+                metadata=metadata_payload,
+            )
         endpoints = [str(item).strip() for item in list(config.get("endpoints") or []) if str(item).strip()]
         if not endpoints:
             return {
@@ -3481,6 +3512,133 @@ class WorkflowService:
                 ],
             ],
         }
+
+    def _execute_stripe_sdk_settlement(
+        self,
+        *,
+        config: dict[str, Any],
+        project_id: Optional[str],
+        project_name: Optional[str],
+        currency: str,
+        due_cents: int,
+        memo: Optional[str],
+        destination_type: Optional[str],
+        destination_ref: Optional[str],
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        secret_key = str(config.get("token") or "").strip()
+        if not secret_key:
+            return {
+                "status": "blocked",
+                "failureCode": "STRIPE_SECRET_KEY_MISSING",
+                "retryable": False,
+                "message": "Stripe SDK settlement requires a secret key.",
+                "executionReason": "Stripe Connect Transfer is blocked until a secret key is configured.",
+                "providerMode": "stripe_sdk",
+                "authSource": "none",
+                "notes": ["providerMode=stripe_sdk", "blocked=stripe_secret_key_missing"],
+            }
+        if destination_type != "connected_account" or not str(destination_ref or "").strip():
+            return {
+                "status": "blocked",
+                "failureCode": "STRIPE_CONNECTED_ACCOUNT_REQUIRED",
+                "retryable": False,
+                "message": "Stripe SDK settlement requires a connected account destination.",
+                "executionReason": "The official Stripe adapter only executes Connect Transfers to connected accounts.",
+                "providerMode": "stripe_sdk",
+                "authSource": config.get("authSource") or "config",
+                "notes": ["providerMode=stripe_sdk", "blocked=stripe_connected_account_required"],
+            }
+        idempotency_key = str(metadata.get("idempotencyKey") or "").strip()
+        if not idempotency_key or len(idempotency_key) > 255:
+            return {
+                "status": "blocked",
+                "failureCode": "STRIPE_IDEMPOTENCY_KEY_REQUIRED",
+                "retryable": False,
+                "message": "Stripe SDK settlement requires metadata.idempotencyKey with at most 255 characters.",
+                "executionReason": "Live transfers are blocked without a stable provider idempotency key.",
+                "providerMode": "stripe_sdk",
+                "authSource": config.get("authSource") or "config",
+                "notes": ["providerMode=stripe_sdk", "blocked=stripe_idempotency_key_required"],
+            }
+
+        stripe_metadata = {
+            "project_id": str(project_id or "workspace")[:500],
+            "project_name": str(project_name or "")[:500],
+            "source": "seo_ad_autopilot",
+        }
+        params: dict[str, Any] = {
+            "amount": due_cents,
+            "currency": currency.lower(),
+            "destination": str(destination_ref).strip(),
+            "metadata": stripe_metadata,
+        }
+        if memo:
+            params["description"] = str(memo)[:500]
+        transfer_group = str(metadata.get("transferGroup") or "").strip()
+        if transfer_group:
+            params["transfer_group"] = transfer_group[:500]
+
+        try:
+            import stripe
+
+            client = stripe.StripeClient(secret_key, max_network_retries=2)
+            transfer = client.v1.transfers.create(params, {"idempotency_key": idempotency_key})
+            transfer_id = str(getattr(transfer, "id", "") or "").strip()
+            if not transfer_id and hasattr(transfer, "get"):
+                transfer_id = str(transfer.get("id") or "").strip()
+            if not transfer_id:
+                raise ValueError("Stripe transfer response did not include an id")
+            livemode = getattr(transfer, "livemode", None)
+            if livemode is None and hasattr(transfer, "get"):
+                livemode = transfer.get("livemode")
+            dashboard_segment = "transfers" if bool(livemode) else "test/transfers"
+            return {
+                "status": "completed",
+                "transactionRef": transfer_id,
+                "providerEndpoint": "stripe://transfers",
+                "providerUrl": f"https://dashboard.stripe.com/{dashboard_segment}/{transfer_id}",
+                "providerArtifactId": transfer_id,
+                "providerMode": "stripe_sdk",
+                "authSource": config.get("authSource") or "config",
+                "message": "Stripe Connect Transfer completed through the official SDK.",
+                "executionReason": "The configured Stripe SDK route created a provider-backed transfer.",
+                "notes": [
+                    "providerMode=stripe_sdk",
+                    "operation=transfers.create",
+                    f"authSource={config.get('authSource') or 'config'}",
+                    "idempotencyKeyApplied=true",
+                ],
+            }
+        except Exception as exc:
+            exception_name = exc.__class__.__name__
+            failure_map = {
+                "AuthenticationError": ("STRIPE_AUTH_FAILED", False),
+                "PermissionError": ("STRIPE_PERMISSION_DENIED", False),
+                "InvalidRequestError": ("STRIPE_REQUEST_INVALID", False),
+                "RateLimitError": ("STRIPE_RATE_LIMITED", True),
+                "APIConnectionError": ("STRIPE_NETWORK_ERROR", True),
+                "APIError": ("STRIPE_API_ERROR", True),
+            }
+            failure_code, retryable = failure_map.get(exception_name, ("STRIPE_SDK_FAILED", False))
+            return {
+                "status": "failed",
+                "failureCode": failure_code,
+                "retryable": retryable,
+                "message": f"Stripe SDK settlement failed ({exception_name}).",
+                "executionReason": "Stripe Connect Transfer did not complete and no fallback success was emitted.",
+                "providerEndpoint": "stripe://transfers",
+                "providerUrl": None,
+                "providerArtifactId": None,
+                "providerMode": "stripe_sdk",
+                "authSource": config.get("authSource") or "config",
+                "notes": [
+                    "providerMode=stripe_sdk",
+                    "operation=transfers.create",
+                    f"failureClass={exception_name}",
+                    f"retryable={str(retryable).lower()}",
+                ],
+            }
 
     def _build_billing_gateway_provider_payload(
         self,
@@ -3804,10 +3962,12 @@ class WorkflowService:
                 freshness_minutes = max(30, int(self.settings.provider_evidence_freshness_minutes))
                 freshness_cutoff = now - timedelta(minutes=freshness_minutes)
                 ad_connected = ad_connection.status == ConnectorStatus.connected and ad_connection.provider_mode == "real"
+                ad_metrics_complete = ad_connection.details.get("metricsComplete") is not False
                 ad_fresh = ad_recent_at is not None and ad_recent_at >= freshness_cutoff
                 notes.append(f"adEvidenceStatus={ad_connection.status.value}")
                 notes.append(f"adEvidenceMode={ad_connection.provider_mode}")
                 notes.append(f"adEvidenceFresh={str(ad_fresh).lower()}")
+                notes.append(f"adEvidenceMetricsComplete={str(ad_metrics_complete).lower()}")
                 if ad_recent_at is not None:
                     notes.append(f"adEvidenceAt={ad_recent_at.isoformat()}")
                 if ad_connection.recent_evidence_ref:
@@ -3816,6 +3976,9 @@ class WorkflowService:
                     if not ad_connected:
                         ad_evidence_block_code = "SETTLEMENT_AD_EVIDENCE_MISSING"
                         ad_evidence_block_reason = "ad_network connector is not connected with real provider evidence"
+                    elif not ad_metrics_complete:
+                        ad_evidence_block_code = "SETTLEMENT_AD_EVIDENCE_INCOMPLETE"
+                        ad_evidence_block_reason = "ad_network provider response lacks required revenue reporting metrics"
                     elif not ad_fresh:
                         ad_evidence_block_code = "SETTLEMENT_AD_EVIDENCE_STALE"
                         ad_evidence_block_reason = (
@@ -3832,6 +3995,9 @@ class WorkflowService:
                     "providerFamily": str(ad_connection.details.get("providerFamily") or ""),
                     "providerName": str(ad_connection.details.get("providerName") or ""),
                     "providerRef": str(ad_connection.details.get("providerRef") or ad_connection.details.get("accountId") or ""),
+                    "metricsComplete": ad_metrics_complete,
+                    "missingMetricFields": list(ad_connection.details.get("missingMetricFields") or []),
+                    "metricsProvenance": str(ad_connection.details.get("metricsProvenance") or "unknown"),
                     "accountId": str(ad_connection.details.get("accountId") or ""),
                     "inventoryStatus": str(ad_connection.details.get("inventoryStatus") or ""),
                     "settlementWindow": str(ad_connection.details.get("settlementWindow") or ""),
@@ -3927,8 +4093,13 @@ class WorkflowService:
                 if matched_gateway_route is not None
                 else {"endpoint": None}
             )
+            sdk_configured = bool(provider_name == "stripe" and runtime_config.get("adapter") == "stripe_sdk")
             if not external_gateway_ready:
-                if matched_gateway_route is not None and not str(runtime_config.get("endpoint") or "").strip():
+                if (
+                    matched_gateway_route is not None
+                    and not str(runtime_config.get("endpoint") or "").strip()
+                    and not sdk_configured
+                ):
                     status = "blocked"
                     failure_code = "SETTLEMENT_GATEWAY_ENDPOINT_MISSING"
                     message = f"Settlement gateway endpoint for provider '{provider_name}' is not configured."
@@ -4344,7 +4515,12 @@ class WorkflowService:
             )
             external_provider = provider_name not in {"manual", "local", "mock"}
             endpoints = [str(item).strip() for item in list(runtime_config.get("endpoints") or []) if str(item).strip()]
-            endpoint_ready = bool(endpoints)
+            sdk_ready = bool(
+                provider_name == "stripe"
+                and runtime_config.get("adapter") == "stripe_sdk"
+                and runtime_config.get("token")
+            )
+            endpoint_ready = bool(endpoints) or sdk_ready
             route_ready = bool(
                 policy.gateway_enabled
                 and route.enabled
@@ -4360,7 +4536,9 @@ class WorkflowService:
             if not route.enabled:
                 warnings.append(f"Settlement route {route.provider_name} is disabled.")
             if external_provider and not endpoint_ready:
-                warnings.append(f"Settlement route {route.provider_name} is missing an external endpoint.")
+                warnings.append(f"Settlement route {route.provider_name} is missing an external endpoint or SDK adapter.")
+            if sdk_ready:
+                recommendations.append(f"Settlement route {route.provider_name} uses the official Stripe SDK adapter.")
             if provider_name == fallback_provider_name:
                 recommendations.append(f"Settlement route {route.provider_name} still resolves to the fallback provider.")
             route_statuses.append(
@@ -4432,7 +4610,8 @@ class WorkflowService:
             auth_header = str(runtime_config.get("authHeader") or "Authorization").strip() or "Authorization"
             auth_source = str(runtime_config.get("authSource") or "none").strip() or "none"
             external_provider = provider_name not in {"manual", "local", "mock"}
-            configured = bool(endpoint)
+            sdk_configured = bool(provider_name == "stripe" and runtime_config.get("adapter") == "stripe_sdk")
+            configured = bool(endpoint) or sdk_configured
             auth_configured = bool(token)
             route_ready = bool(
                 policy.gateway_enabled
@@ -4444,6 +4623,8 @@ class WorkflowService:
             strict_ready = bool(route_ready and (not external_provider or auth_configured))
             fallback_reason: Optional[str] = None
             notes = list(route.notes)
+            if sdk_configured:
+                notes.append("adapter=stripe_sdk")
             if not policy.gateway_enabled:
                 fallback_reason = fallback_reason or "gateway disabled"
                 warnings.append("Billing settlement gateway is disabled.")
@@ -4451,8 +4632,8 @@ class WorkflowService:
                 fallback_reason = fallback_reason or "route disabled"
                 warnings.append(f"Settlement route {route.provider_name} is disabled.")
             if external_provider and not configured:
-                fallback_reason = fallback_reason or "missing endpoint"
-                warnings.append(f"Settlement route {route.provider_name} is missing an external endpoint.")
+                fallback_reason = fallback_reason or "missing endpoint or SDK adapter"
+                warnings.append(f"Settlement route {route.provider_name} is missing an external endpoint or SDK adapter.")
             if external_provider and not auth_configured:
                 fallback_reason = fallback_reason or "missing auth"
                 warnings.append(f"Settlement route {route.provider_name} is missing auth credentials.")
@@ -7119,6 +7300,10 @@ class WorkflowService:
                 auth_source=config.get("authSource") or "config",
                 notes=[*notes, "blocked=runtime_edge_gateway_endpoint_missing"],
             )
+        site_routes = self.build_workspace_runtime_edge_route_map_report(
+            project_id=gateway_report.project_id,
+            strict_routes_only=gateway_report.policy.strict_routing,
+        ).items
         payload = {
             "projectId": gateway_report.project_id,
             "gatewayEnabled": gateway_report.policy.gateway_enabled,
@@ -7129,6 +7314,7 @@ class WorkflowService:
             "routeReadyCount": gateway_report.route_ready_count,
             "gatewayReady": gateway_report.gateway_ready,
             "routes": [route.model_dump(mode="json", by_alias=True) for route in gateway_report.routes],
+            "siteRoutes": [item.model_dump(mode="json", by_alias=True) for item in site_routes],
             "warnings": list(gateway_report.warnings),
             "recommendations": list(gateway_report.recommendations),
         }
@@ -7293,6 +7479,10 @@ class WorkflowService:
                 "providerArtifactId": None,
                 "notes": ["providerMode=local", "gatewayEndpointMissing=true"],
             }
+        site_routes = self.build_workspace_runtime_edge_route_map_report(
+            project_id=project_id,
+            strict_routes_only=strict_routes_only,
+        ).items
         payload = {
             "projectId": project_id,
             "taskId": task_id,
@@ -7300,6 +7490,8 @@ class WorkflowService:
             "canaryPercent": int(canary_percent),
             "actor": actor,
             "note": note,
+            "routes": [item.model_dump(mode="json", by_alias=True) for item in site_routes],
+            "siteRoutes": [item.model_dump(mode="json", by_alias=True) for item in site_routes],
             "export": export_report.model_dump(mode="json", by_alias=True),
         }
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -8741,8 +8933,8 @@ class WorkflowService:
                     if detail.ad_audit.ad_allowed:
                         signals.add("ad_allowed:true")
                 if detail.technical_seo is not None:
-                    signals.add(f"seo_health:{detail.technical_seo.overallHealth}")
-                    signals.update(f"seo_action:{item}" for item in detail.technical_seo.actionPlan)
+                    signals.add(f"seo_health:{detail.technical_seo.overall_health}")
+                    signals.update(f"seo_action:{item}" for item in detail.technical_seo.action_plan)
         for template in templates:
             target_project_ids = [project_id.strip() for project_id in template.target_project_ids if project_id and project_id.strip()]
             project_scope_ids.update(target_project_ids)
@@ -11915,6 +12107,44 @@ class WorkflowService:
             try:
                 with urlopen(request, timeout=timeout_sec) as response:  # nosec - configured provider endpoint
                     status_code = int(getattr(response, "status", 200) or 200)
+                    response_payload: dict[str, Any] = {}
+                    try:
+                        raw_payload = response.read()
+                        parsed_payload = json.loads(raw_payload.decode("utf-8")) if raw_payload else {}
+                        if isinstance(parsed_payload, dict):
+                            response_payload = parsed_payload
+                    except Exception:
+                        response_payload = {}
+                readiness_url = str(response_payload.get("readinessUrl") or "").strip()
+                if readiness_url:
+                    readiness_endpoint = urljoin(f"{endpoint.rstrip('/')}/", readiness_url)
+                    readiness_request = Request(readiness_endpoint, headers=request_headers, method="GET")
+                    with urlopen(readiness_request, timeout=timeout_sec) as response:  # nosec - provider-declared readiness URL
+                        status_code = int(getattr(response, "status", 200) or 200)
+                        raw_payload = response.read()
+                    parsed_payload = json.loads(raw_payload.decode("utf-8")) if raw_payload else {}
+                    response_payload = parsed_payload if isinstance(parsed_payload, dict) else {}
+                if response_payload.get("status") == "not_ready" or response_payload.get("chromiumReady") is False:
+                    failure_code = str(response_payload.get("failureCode") or "VISUAL_FARM_CHROMIUM_UNAVAILABLE")
+                    blocking, alert_severity = _classify_probe_signal(
+                        status="failed",
+                        failure_code=failure_code,
+                        retryable=bool(response_payload.get("retryable", False)),
+                    )
+                    probes.append(
+                        VisualFarmEndpointProbe(
+                            endpoint=endpoint,
+                            status="failed",
+                            latency_ms=int((time.perf_counter() - started) * 1000),
+                            http_status=status_code,
+                            failure_code=failure_code,
+                            retryable=bool(response_payload.get("retryable", False)),
+                            blocking=blocking,
+                            alert_severity=alert_severity,
+                            message=str(response_payload.get("message") or "visual farm browser runtime is not ready"),
+                        )
+                    )
+                    continue
                 latency_ms = int((time.perf_counter() - started) * 1000)
                 probes.append(
                     VisualFarmEndpointProbe(
@@ -11925,12 +12155,28 @@ class WorkflowService:
                         retryable=False,
                         blocking=False,
                         alert_severity="info",
-                        message="endpoint reachable",
+                        message=(
+                            f"browser runtime ready ({response_payload.get('browserVersion') or 'provider-managed'})"
+                            if response_payload.get("chromiumReady") is True
+                            else "endpoint reachable"
+                        ),
                     )
                 )
             except HTTPError as exc:
                 status_code = int(getattr(exc, "code", 0) or 0)
-                if status_code == 401:
+                error_payload: dict[str, Any] = {}
+                try:
+                    raw_error = exc.read()
+                    parsed_error = json.loads(raw_error.decode("utf-8")) if raw_error else {}
+                    if isinstance(parsed_error, dict):
+                        error_payload = parsed_error
+                except Exception:
+                    error_payload = {}
+                provider_failure_code = str(error_payload.get("failureCode") or "").strip()
+                if provider_failure_code:
+                    failure_code = provider_failure_code
+                    retryable = bool(error_payload.get("retryable", False))
+                elif status_code == 401:
                     failure_code = "VISUAL_FARM_AUTH_INVALID"
                     retryable = False
                 elif status_code == 403:
@@ -11959,7 +12205,7 @@ class WorkflowService:
                         retryable=retryable,
                         blocking=blocking,
                         alert_severity=alert_severity,
-                        message=str(exc),
+                        message=str(error_payload.get("message") or exc),
                     )
                 )
             except Exception as exc:
@@ -12549,9 +12795,16 @@ class WorkflowService:
             task = task_by_project.get(project.id) if project is not None else None
             deployment_artifact_ref = None
             deployment_record_id = None
+            baseline_url = None
+            preview_url = None
             if task is not None and task.deployment_json:
                 deployment_artifact_ref = str(task.deployment_json.get("artifactRef") or "") or None
                 deployment_record_id = str(task.deployment_json.get("deploymentId") or task.deployment_json.get("deployment_id") or "") or None
+            if task is not None:
+                approval_rules = (task.input_json or {}).get("approvalRules") or (task.input_json or {}).get("approval_rules") or {}
+                if isinstance(approval_rules, dict):
+                    baseline_url = str(approval_rules.get("visualBaselineUrl") or "").strip() or None
+                    preview_url = str(approval_rules.get("visualPreviewUrl") or "").strip() or None
             enriched.append(
                 case.model_copy(
                     update={
@@ -12560,6 +12813,8 @@ class WorkflowService:
                         "workflow_task_id": task.id if task is not None else None,
                         "deployment_artifact_ref": deployment_artifact_ref,
                         "deployment_record_id": deployment_record_id,
+                        "baseline_url": baseline_url,
+                        "preview_url": preview_url,
                     }
                 )
             )
@@ -19165,6 +19420,13 @@ class WorkflowService:
                         f"payoutThreshold={round(ad_payout_threshold or 0, 2)}",
                         f"geoCoverage={','.join(ad_geo_coverage) or 'n/a'}",
                         f"providerProgram={ad_provider_program or 'n/a'}",
+                        f"metricsComplete={str(ad_connection.details.get('metricsComplete') is not False).lower()}",
+                        "missingMetricFields="
+                        + ",".join(
+                            str(item)
+                            for item in ad_connection.details.get("missingMetricFields", [])
+                            if str(item).strip()
+                        ),
                         f"authSource={ad_connection.details.get('authSource') or 'none'}",
                     ]
                     if ad_connection.status != ConnectorStatus.connected:
@@ -19172,7 +19434,10 @@ class WorkflowService:
                         ad_revenue_provenance.append(f"mode={ad_mode}")
                         ad_fallback_reason = str(ad_connection.details.get("fallbackReason") or "ad network not connected")
                         ad_failure_code = str(ad_connection.details.get("errorCode") or "") or None
-                    strict_publish_eligible = ad_connection.status == ConnectorStatus.connected
+                    strict_publish_eligible = (
+                        ad_connection.status == ConnectorStatus.connected
+                        and ad_connection.details.get("metricsComplete") is not False
+                    )
                     ad_provider_examples = [
                         f"{ad_provider_family}:{ad_provider_name}",
                         f"ad_network:{provider_ref}",
@@ -19669,6 +19934,153 @@ class WorkflowService:
             notes=[
                 "The audit intentionally stays conservative where evidence is synthetic or missing.",
                 "Connect real Search Console, sitemap, and crawl signals to improve confidence.",
+            ],
+        )
+
+    def build_seo_conversion_audit_report(self, project_id: str) -> SeoConversionAuditReport:
+        """Join existing technical findings with evidence and conversion-readiness gates."""
+        task_id = self._latest_task_id_for_project(project_id)
+        bundle = self.get_workflow(task_id)
+        technical = self.build_technical_seo_report(project_id)
+        project_connections = self.get_project_connections(project_id).connections
+        real_providers = {
+            connection.provider
+            for connection in project_connections
+            if connection.status == ConnectorStatus.connected and connection.provider_mode == "real"
+        }
+        observed_technical_evidence = bool(
+            real_providers.intersection({ConnectorKind.sitemap, ConnectorKind.playwright})
+        )
+        source_labels = {
+            ConnectorKind.search_console: "Search Console",
+            ConnectorKind.ga4: "GA4",
+            ConnectorKind.sitemap: "sitemap",
+            ConnectorKind.playwright: "Playwright crawl",
+        }
+        technical_sources = [
+            source_labels[provider]
+            for provider in (ConnectorKind.search_console, ConnectorKind.ga4, ConnectorKind.sitemap, ConnectorKind.playwright)
+            if provider in real_providers
+        ]
+        findings: list[SeoConversionAuditFinding] = []
+        priority_by_impact = {"high": "P1", "medium": "P2", "low": "P3"}
+        source_sections = (
+            ("crawlability", technical.crawlability),
+            ("on-page", technical.on_page),
+            ("content", technical.content),
+            ("performance", technical.performance),
+        )
+        for section, section_findings in source_sections:
+            for index, finding in enumerate(section_findings, start=1):
+                text = f"{finding.area} {finding.issue} {finding.fix}".lower()
+                requires_approval = any(token in text for token in ("canonical", "index", "robots", "redirect", "sitemap", "noindex"))
+                evidence_status: Literal["observed", "needs_verification"]
+                evidence_status = "observed" if observed_technical_evidence else "needs_verification"
+                findings.append(
+                    SeoConversionAuditFinding(
+                        finding_id=f"{section}-{index}",
+                        priority="P0" if requires_approval and finding.impact == "high" else priority_by_impact[finding.impact],
+                        area=finding.area,
+                        issue=finding.issue,
+                        impact=finding.impact,
+                        evidence=finding.evidence,
+                        recommended_action=finding.fix,
+                        verification="Re-crawl the affected URL and compare DOM, meta, schema, and status-code evidence before release.",
+                        evidence_status=evidence_status,
+                        requires_approval=requires_approval,
+                        rollback_required=True,
+                    )
+                )
+
+        with self.database.session() as session:
+            project = session.get(ProjectRow, project_id)
+            if project is None:
+                raise ValueError(f"Unknown project: {project_id}")
+            intake_rules = self._project_intake(project).approval_rules
+        conversion_goal = str(intake_rules.get("conversionGoal") or intake_rules.get("conversion_goal") or "not_declared").strip()
+        configured_attribution = intake_rules.get("attributionSources") or intake_rules.get("attribution_sources") or []
+        declared_sources = [str(item).strip() for item in configured_attribution if str(item).strip()] if isinstance(configured_attribution, list) else []
+        connection_by_provider = {connection.provider: connection for connection in project_connections}
+        search_console_connection = connection_by_provider.get(ConnectorKind.search_console)
+        ga4_connection = connection_by_provider.get(ConnectorKind.ga4)
+        search_console_ready = bool(
+            ConnectorKind.search_console in real_providers
+            and search_console_connection is not None
+            and search_console_connection.details.get("metricsComplete") is True
+        )
+        ga4_metrics_ready = bool(
+            ConnectorKind.ga4 in real_providers
+            and ga4_connection is not None
+            and ga4_connection.details.get("metricsComplete") is True
+        )
+        available_attribution_sources: list[str] = []
+        if ga4_metrics_ready:
+            available_attribution_sources.append("GA4 conversion events")
+        available_attribution_sources.extend(declared_sources)
+        missing_attribution_sources = [
+            source
+            for source in ("click ID", "UTM", "channel or affiliate code", "referrer")
+            if source.lower() not in {item.lower() for item in available_attribution_sources}
+        ]
+        attribution_ready = conversion_goal != "not_declared" and "GA4 conversion events" in available_attribution_sources
+        attribution = ConversionAttributionReadiness(
+            conversion_goal=conversion_goal,
+            status="ready" if attribution_ready else "needs_verification",
+            available_sources=available_attribution_sources,
+            missing_sources=missing_attribution_sources,
+            recommended_precedence=["click ID", "UTM", "channel or affiliate code", "referrer", "direct"],
+            note=(
+                "Real GA4 evidence and a declared conversion goal are available; verify event definitions before using results for release decisions."
+                if attribution_ready
+                else "Do not infer organic conversion impact until a conversion goal and real GA4 event evidence are available."
+            ),
+        )
+        baseline_readiness = [
+            SeoBaselineReadiness(
+                window_days=window,
+                ready=search_console_ready,
+                sources=["Search Console"] if search_console_ready else [],
+                note=(
+                    "Search Console is connected; query the exact date range before comparing performance."
+                    if search_console_ready
+                    else "待核验：需要真实 Search Console 查询结果，当前不展示合成点击、展现或排名数据。"
+                ),
+            )
+            for window in (7, 28, 90)
+        ]
+        review_checkpoints = [
+            SeoAuditReviewCheckpoint(
+                day=7,
+                focus="Verify crawlability, indexation, Core Web Vitals, and release regressions.",
+                required_sources=["sitemap or Playwright crawl", "Search Console"],
+                ready=search_console_ready and observed_technical_evidence,
+            ),
+            SeoAuditReviewCheckpoint(
+                day=14,
+                focus="Review non-brand queries, CTR movement, and landing-page behavior.",
+                required_sources=["Search Console", "GA4"],
+                ready=search_console_ready and ga4_metrics_ready,
+            ),
+            SeoAuditReviewCheckpoint(
+                day=28,
+                focus="Evaluate conversion impact and decide whether to expand, hold, or roll back.",
+                required_sources=["Search Console", "GA4 conversion events"],
+                ready=search_console_ready and attribution_ready,
+            ),
+        ]
+        return SeoConversionAuditReport(
+            report_id=new_id("seo-conversion-audit"),
+            project_id=project_id,
+            task_id=task_id,
+            technical_report_id=technical.report_id,
+            findings=findings,
+            baseline_readiness=baseline_readiness,
+            attribution=attribution,
+            review_checkpoints=review_checkpoints,
+            notes=[
+                "This report reuses the technical SEO report and connection evidence; it does not fabricate traffic or conversion metrics.",
+                f"Real sources available: {', '.join(technical_sources) if technical_sources else 'none; all conclusions requiring external data are 待核验'}.",
+                "Changes affecting canonical URLs, indexation, robots, redirects, sitemap, login, payment, or bulk content require approval and a rollback path.",
             ],
         )
 
@@ -20484,6 +20896,7 @@ class WorkflowService:
             adaptive_components = self.build_adaptive_component_report(project_id)
             technical_seo = self.build_technical_seo_report(project_id)
             technical_seo_patch = self.build_technical_seo_patch_report(project_id)
+            seo_conversion_audit = self.build_seo_conversion_audit_report(project_id)
             billing = self.build_workspace_billing_report(project_id=project_id)
             billing_gateway_history = self.build_workspace_billing_gateway_history_report(limit=8, project_id=project_id)
             model_gateway = self.build_workspace_model_gateway_report(project_id=project_id)
@@ -20582,6 +20995,7 @@ class WorkflowService:
                 adaptive_components=adaptive_components,
                 technical_seo=technical_seo,
                 technical_seo_patch=technical_seo_patch,
+                seo_conversion_audit=seo_conversion_audit,
             )
 
     def list_project_deployments(self, project_id: str) -> DeploymentHistoryReport:
@@ -20753,6 +21167,21 @@ class WorkflowService:
             if not explicitly_configured:
                 continue
             if item.status == ConnectorStatus.connected:
+                if (
+                    item.provider in {ConnectorKind.search_console, ConnectorKind.ga4}
+                    and item.details.get("metricsComplete") is not True
+                ):
+                    blockers.append(
+                        {
+                            "provider": item.provider.value,
+                            "status": item.status.value,
+                            "failureCode": f"{item.provider.value.upper()}_METRICS_INCOMPLETE",
+                            "fallbackReason": "provider response is connected but required metric fields are incomplete",
+                            "sourceRef": item.source_ref,
+                            "authSource": item.auth_source,
+                        }
+                    )
+                    continue
                 checked_at = item.checked_at
                 if checked_at.tzinfo is None:
                     checked_at = checked_at.replace(tzinfo=timezone.utc)
@@ -21501,6 +21930,15 @@ class WorkflowService:
             connection.provider_mode = "unconfigured"
             connection.strict_eligible = False
             connection.blocking_reason = "connector disabled"
+        elif (
+            connection.provider == ConnectorKind.ad_network
+            and connection.status == ConnectorStatus.connected
+            and details.get("metricsComplete") is False
+            and not uses_fallback
+        ):
+            connection.provider_mode = "real"
+            connection.strict_eligible = False
+            connection.blocking_reason = "AD_NETWORK_METRICS_INCOMPLETE"
         elif connection.status == ConnectorStatus.connected and not uses_fallback:
             connection.provider_mode = "real"
             connection.strict_eligible = True
@@ -21728,10 +22166,18 @@ class WorkflowService:
         if task:
             summary = self._task_summary_from_row(task)
             deployment_mode = None
-            recommendation = "Preview only"
+            recommendations = {
+                WorkflowStage.awaiting_approval: "Awaiting approval",
+                WorkflowStage.approved: "Approved for release",
+                WorkflowStage.deployed: "Deployed and ready for monitoring",
+                WorkflowStage.monitoring: "Monitoring live changes",
+                WorkflowStage.rolled_back: "Rolled back",
+                WorkflowStage.rejected: "Rejected by approval gateway",
+                WorkflowStage.closed: "Closed",
+            }
+            recommendation = recommendations.get(summary.status, "Preview only")
             if task.deployment_json:
                 deployment_mode = DeploymentMode(task.deployment_json.get("mode", DeploymentMode.github_pr.value))
-                recommendation = "Awaiting approval"
             return ProjectSummary(
                 project_id=row.id,
                 name=row.name,

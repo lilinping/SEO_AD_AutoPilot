@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+import time
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional
 
-from sqlalchemy import Boolean, JSON, DateTime, Integer, String, Text, create_engine, inspect, select
+from sqlalchemy import Boolean, Float, JSON, DateTime, Integer, String, Text, create_engine, inspect, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+
 
 from .config import Settings, get_settings
 from .models import ApprovalStatus, SiteClass, WorkflowStage, utcnow
@@ -180,11 +183,113 @@ class JobQueueRow(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class ContentVersionRow(Base):
+    """DB-004 — persisted content version snapshots.
+
+    Mirrors migration 0001_initial `content_versions` table so the ORM layer
+    and Alembic schema stay in sync.
+    """
+
+    __tablename__ = "content_versions"
+
+    version_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    content_id: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+    version: Mapped[str] = mapped_column(String(20), nullable=False)
+    content_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    author: Mapped[str] = mapped_column(String(100), nullable=False, default="agent")
+    change_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), index=True, nullable=True)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False, default=time.time)
+
+
+class AdRecommendationRow(Base):
+    """DB-006 — persisted ad platform recommendation history.
+
+    Mirrors migration 0001_initial `ad_recommendations` table.
+    """
+
+    __tablename__ = "ad_recommendations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    platforms: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    site_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, default=dict)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), index=True, nullable=True)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False, default=time.time)
+
+
+class RankingSnapshotRow(Base):
+    """DB-003 — persisted daily keyword rank snapshots.
+
+    Mirrors migration 0001_initial `ranking_snapshots` table.
+    """
+
+    __tablename__ = "ranking_snapshots"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    keyword: Mapped[str] = mapped_column(Text, nullable=False)
+    position: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    search_engine: Mapped[str] = mapped_column(String(20), nullable=False, default="google")
+    locale: Mapped[str] = mapped_column(String(10), nullable=False, default="en")
+    device: Mapped[str] = mapped_column(String(10), nullable=False, default="desktop")
+    serp_features: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, default=list)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), index=True, nullable=True)
+    snapshot_date: Mapped[str] = mapped_column(String(10), nullable=False)  # YYYY-MM-DD
+    created_at: Mapped[float] = mapped_column(Float, nullable=False, default=time.time)
+
+
+class AnalysisTaskRow(Base):
+    """DB-005 — persisted analysis task queue state.
+
+    Mirrors migration 0001_initial `analysis_tasks` table.
+    """
+
+    __tablename__ = "analysis_tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    percent: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    agent_filter: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    dry_run: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    locale: Mapped[str] = mapped_column(String(10), nullable=False, default="en")
+    result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), index=True, nullable=True)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False, default=time.time)
+    updated_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+
+class DebateLogRow(Base):
+    """DB-007 — persisted multi-agent debate logs for audit.
+
+    Mirrors migration 0001_initial `debate_logs` table.
+    """
+
+    __tablename__ = "debate_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    task_id: Mapped[Optional[str]] = mapped_column(String(36), index=True, nullable=True)
+    topic: Mapped[str] = mapped_column(Text, nullable=False)
+    proposer_role: Mapped[str] = mapped_column(String(50), nullable=False)
+    participants: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    rounds: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    consensus_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    resolution: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), index=True, nullable=True)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False, default=time.time)
+
+
+
 class Database:
     def __init__(self, settings: Optional[Settings] = None):
         self.settings = settings or get_settings()
         self._engine = self._create_engine()
         self.session_factory = sessionmaker(bind=self._engine, expire_on_commit=False, future=True)
+
 
     def _create_engine(self):
         url = self.settings.database_url
@@ -271,10 +376,266 @@ class Database:
         with self.session() as session:
             return session.query(ProjectRunRow).count()
 
+    # ── DB-006: ad recommendation persistence ────────────────────────────────
+
+    def save_ad_recommendation(
+        self,
+        url: str,
+        platforms: list,
+        site_data: Optional[dict] = None,
+        tenant_id: Optional[str] = None,
+    ) -> str:
+        """Persist an ad platform recommendation result. Returns the row id."""
+        row_id = uuid.uuid4().hex
+        with self.session() as session:
+            session.add(AdRecommendationRow(
+                id=row_id,
+                url=url,
+                platforms=platforms or [],
+                site_data=site_data or {},
+                tenant_id=tenant_id,
+                created_at=time.time(),
+            ))
+        return row_id
+
+    def list_ad_recommendations(
+        self,
+        url: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """Return recommendation history (newest first)."""
+        with self.session() as session:
+            query = session.query(AdRecommendationRow)
+            if url:
+                query = query.filter(AdRecommendationRow.url == url)
+            if tenant_id:
+                query = query.filter(AdRecommendationRow.tenant_id == tenant_id)
+            rows = query.order_by(AdRecommendationRow.created_at.desc()).limit(limit).all()
+            return [
+                {
+                    "id": r.id,
+                    "url": r.url,
+                    "platforms": r.platforms,
+                    "site_data": r.site_data,
+                    "tenant_id": r.tenant_id,
+                    "created_at": r.created_at,
+                }
+                for r in rows
+            ]
+
+    # ── DB-003: ranking snapshot persistence ─────────────────────────────────
+
+    def save_ranking_snapshots(
+        self,
+        url: str,
+        keyword_rows: list[dict],
+        search_engine: str = "google",
+        locale: str = "en",
+        device: str = "desktop",
+        snapshot_date: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+    ) -> list[str]:
+        """Persist a batch of per-keyword rank snapshots. Returns the row ids."""
+        date_str = snapshot_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        ids: list[str] = []
+        with self.session() as session:
+            for row in keyword_rows:
+                keyword = row.get("keyword")
+                if not keyword:
+                    continue
+                row_id = uuid.uuid4().hex
+                position = row.get("position")
+                # RankSnapshotSkill uses 999 as the "unranked" sentinel.
+                if isinstance(position, (int, float)) and position >= 999:
+                    position = None
+                session.add(RankingSnapshotRow(
+                    id=row_id,
+                    url=url,
+                    keyword=keyword,
+                    position=int(position) if position is not None else None,
+                    search_engine=search_engine,
+                    locale=locale,
+                    device=device,
+                    serp_features=row.get("serp_features") or [],
+                    tenant_id=tenant_id,
+                    snapshot_date=row.get("date") or date_str,
+                    created_at=time.time(),
+                ))
+                ids.append(row_id)
+        return ids
+
+    def list_ranking_snapshots(
+        self,
+        url: Optional[str] = None,
+        keyword: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Return rank snapshot history (newest first)."""
+        with self.session() as session:
+            query = session.query(RankingSnapshotRow)
+            if url:
+                query = query.filter(RankingSnapshotRow.url == url)
+            if keyword:
+                query = query.filter(RankingSnapshotRow.keyword == keyword)
+            if tenant_id:
+                query = query.filter(RankingSnapshotRow.tenant_id == tenant_id)
+            rows = query.order_by(RankingSnapshotRow.created_at.desc()).limit(limit).all()
+            return [
+                {
+                    "id": r.id,
+                    "url": r.url,
+                    "keyword": r.keyword,
+                    "position": r.position,
+                    "search_engine": r.search_engine,
+                    "locale": r.locale,
+                    "device": r.device,
+                    "serp_features": r.serp_features,
+                    "snapshot_date": r.snapshot_date,
+                    "tenant_id": r.tenant_id,
+                    "created_at": r.created_at,
+                }
+                for r in rows
+            ]
+
+    # ── DB-007: debate log persistence ───────────────────────────────────────
+
+    def save_debate_log(
+        self,
+        topic: str,
+        proposer_role: str,
+        task_id: Optional[str] = None,
+        participants: Optional[list] = None,
+        rounds: Optional[list] = None,
+        consensus_score: Optional[float] = None,
+        resolution: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+    ) -> str:
+        """Persist a debate log for audit. Returns the row id."""
+        row_id = uuid.uuid4().hex
+        with self.session() as session:
+            session.add(DebateLogRow(
+                id=row_id,
+                task_id=task_id,
+                topic=topic,
+                proposer_role=proposer_role,
+                participants=participants or [],
+                rounds=rounds or [],
+                consensus_score=consensus_score,
+                resolution=resolution,
+                tenant_id=tenant_id,
+                created_at=time.time(),
+            ))
+        return row_id
+
+    def list_debate_logs(
+        self,
+        task_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """Return debate log history (newest first)."""
+        with self.session() as session:
+            query = session.query(DebateLogRow)
+            if task_id:
+                query = query.filter(DebateLogRow.task_id == task_id)
+            if tenant_id:
+                query = query.filter(DebateLogRow.tenant_id == tenant_id)
+            rows = query.order_by(DebateLogRow.created_at.desc()).limit(limit).all()
+            return [
+                {
+                    "id": r.id,
+                    "task_id": r.task_id,
+                    "topic": r.topic,
+                    "proposer_role": r.proposer_role,
+                    "participants": r.participants,
+                    "rounds": r.rounds,
+                    "consensus_score": r.consensus_score,
+                    "resolution": r.resolution,
+                    "tenant_id": r.tenant_id,
+                    "created_at": r.created_at,
+                }
+                for r in rows
+            ]
+
+    # ── DB-005: analysis task persistence ────────────────────────────────────
+
+    def save_analysis_task(
+        self,
+        task_id: str,
+        url: str,
+        status: str = "queued",
+        percent: int = 0,
+        agent_filter: Optional[list] = None,
+        dry_run: bool = False,
+        locale: str = "en",
+        result: Optional[dict] = None,
+        error: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+    ) -> str:
+        """Upsert an analysis task's queue state. Returns the task id."""
+        with self.session() as session:
+            existing = session.get(AnalysisTaskRow, task_id)
+            if existing is None:
+                session.add(AnalysisTaskRow(
+                    id=task_id,
+                    url=url,
+                    status=status,
+                    percent=percent,
+                    agent_filter=agent_filter,
+                    dry_run=dry_run,
+                    locale=locale,
+                    result=result,
+                    error=error,
+                    tenant_id=tenant_id,
+                    created_at=time.time(),
+                    updated_at=time.time(),
+                ))
+            else:
+                existing.url = url
+                existing.status = status
+                existing.percent = percent
+                if agent_filter is not None:
+                    existing.agent_filter = agent_filter
+                existing.dry_run = dry_run
+                existing.locale = locale
+                if result is not None:
+                    existing.result = result
+                if error is not None:
+                    existing.error = error
+                if tenant_id is not None:
+                    existing.tenant_id = tenant_id
+                existing.updated_at = time.time()
+        return task_id
+
+    def get_analysis_task(self, task_id: str) -> Optional[dict]:
+        """Return a persisted analysis task by id, or None."""
+        with self.session() as session:
+            r = session.get(AnalysisTaskRow, task_id)
+            if r is None:
+                return None
+            return {
+                "id": r.id,
+                "url": r.url,
+                "status": r.status,
+                "percent": r.percent,
+                "agent_filter": r.agent_filter,
+                "dry_run": r.dry_run,
+                "locale": r.locale,
+                "result": r.result,
+                "error": r.error,
+                "tenant_id": r.tenant_id,
+                "created_at": r.created_at,
+                "updated_at": r.updated_at,
+            }
+
+
 
 def json_dump(payload: object) -> dict:
     if payload is None:
         return {}
+
     if hasattr(payload, "model_dump"):
         return payload.model_dump(mode="json", by_alias=True)  # type: ignore[no-any-return]
     if isinstance(payload, dict):

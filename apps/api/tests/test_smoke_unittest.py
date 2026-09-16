@@ -21,8 +21,11 @@ from apps.api.seo_ad_autopilot.connectors import (
     AdNetworkAdapter,
     CmsAdapter,
     ConnectorContext,
+    Ga4Adapter,
     GitHubAdapter,
+    SearchConsoleAdapter,
     ScriptApiAdapter,
+    _resolve_google_access_token,
 )
 from apps.api.seo_ad_autopilot.db import AlertSnapshotRow, AuditRow, Database, ProjectStateRow, TaskRow
 from apps.api.seo_ad_autopilot.artifact_store import get_artifact_store
@@ -132,6 +135,42 @@ class SmokeWorkflowTests(unittest.TestCase):
         service.database.create_all()
         return service
 
+    def _configure_stripe_sdk_settlement(self, client: TestClient) -> None:
+        gateway = client.put(
+            "/api/billing/gateway",
+            json={
+                "gatewayEnabled": True,
+                "strictRouting": True,
+                "defaultProviderName": "stripe",
+                "fallbackProviderName": "manual",
+                "routes": [
+                    {
+                        "providerName": "stripe",
+                        "enabled": True,
+                        "fallbackProviderName": "manual",
+                        "priority": 1,
+                        "notes": ["adapter=stripe_sdk"],
+                    }
+                ],
+            },
+            headers={"X-API-Key": "dev-key"},
+        )
+        self.assertEqual(gateway.status_code, 200)
+        billing = client.put(
+            "/api/billing",
+            json={
+                "commercialModeEnabled": True,
+                "settlementEnabled": True,
+                "settlementProviderName": "stripe",
+                "settlementAccountRef": "merchant_stripe_sdk_001",
+                "settlementCurrency": "USD",
+                "settlementHoldbackPercent": 3,
+                "settlementPayoutThresholdCents": 500,
+            },
+            headers={"X-API-Key": "dev-key"},
+        )
+        self.assertEqual(billing.status_code, 200)
+
     def test_coordinator_builds_preview_bundle(self) -> None:
         intake = SiteIntake(
             url="https://northstar-media.example",
@@ -163,6 +202,33 @@ class SmokeWorkflowTests(unittest.TestCase):
         self.assertGreaterEqual(bundle.plan.risk_score, 80)
         self.assertEqual(bundle.deployment.status, "blocked")
         self.assertTrue(bundle.plan.requires_manual_approval)
+
+    def test_project_summary_recommendation_tracks_latest_workflow_stage(self) -> None:
+        service = self._service()
+        intake = SiteIntake(
+            url="https://summary-state.example",
+            site_name="Summary State",
+            repo_url="https://github.com/example/summary-state",
+            keywords=["product guides"],
+        )
+        project = service.create_project(ProjectCreateRequest(name="Summary State", intake=intake))
+        bundle = service.run_analysis(project.project_id, intake)
+
+        awaiting = next(item for item in service.list_projects() if item.project_id == project.project_id)
+        self.assertEqual(awaiting.latest_stage, WorkflowStage.awaiting_approval)
+        self.assertEqual(awaiting.recommendation, "Awaiting approval")
+
+        service.approve_task(
+            bundle.task.task_id,
+            ApprovalDecisionRequest(decision=ApprovalStatus.approved, actor="test"),
+        )
+        updated = next(item for item in service.list_projects() if item.project_id == project.project_id)
+        self.assertNotEqual(updated.recommendation, "Awaiting approval")
+        self.assertIn(updated.latest_stage, {WorkflowStage.approved, WorkflowStage.deployed})
+        self.assertEqual(
+            updated.recommendation,
+            "Approved for release" if updated.latest_stage == WorkflowStage.approved else "Deployed and ready for monitoring",
+        )
 
     def test_ad_audit_report_includes_negative_conditions(self) -> None:
         service = self._service()
@@ -254,6 +320,102 @@ class SmokeWorkflowTests(unittest.TestCase):
         self.assertAlmostEqual(report.ad_payout_threshold or 0, 25.0, places=2)
         self.assertEqual(report.ad_geo_coverage, ["US", "CA", "AU"])
         self.assertEqual(report.ad_provider_program, "managed-service")
+
+    def test_seo_conversion_audit_marks_missing_provider_evidence_for_verification(self) -> None:
+        service = self._service()
+        intake = SiteIntake(
+            url="https://audit-evidence.example",
+            site_name="Audit Evidence",
+            keywords=["technical seo"],
+            approval_rules={"conversionGoal": "signup"},
+        )
+        project = service.create_project(ProjectCreateRequest(name="Audit Evidence", intake=intake))
+        service.run_analysis(project.project_id, intake)
+
+        report = service.build_seo_conversion_audit_report(project.project_id)
+
+        self.assertEqual(report.attribution.status, "needs_verification")
+        self.assertTrue(all(not item.ready for item in report.baseline_readiness))
+        self.assertTrue(all(item.evidence_status == "needs_verification" for item in report.findings))
+        self.assertEqual([item.day for item in report.review_checkpoints], [7, 14, 28])
+        self.assertTrue(all(not item.ready for item in report.review_checkpoints))
+        self.assertTrue(any("does not fabricate" in note for note in report.notes))
+
+    def test_seo_conversion_audit_requires_real_sources_for_readiness(self) -> None:
+        service = self._service()
+        intake = SiteIntake(
+            url="https://audit-ready.example",
+            site_name="Audit Ready",
+            approval_rules={"conversionGoal": "purchase"},
+        )
+        project = service.create_project(ProjectCreateRequest(name="Audit Ready", intake=intake))
+        service.run_analysis(project.project_id, intake)
+        with service.database.session() as session:
+            connections = service._load_project_connections(session, project.project_id, intake)
+            for connection in connections:
+                if connection.provider in {
+                    ConnectorKind.search_console,
+                    ConnectorKind.ga4,
+                    ConnectorKind.sitemap,
+                    ConnectorKind.playwright,
+                }:
+                    connection.status = ConnectorStatus.connected
+                    connection.details.update(
+                        {
+                            "authSource": "test",
+                            "recentEvidenceAt": datetime.now(timezone.utc).isoformat(),
+                            "metricsComplete": True,
+                            "metricsProvenance": "provider",
+                        }
+                    )
+                    connection.provenance = ["provider=test"]
+            service._persist_project_connections(session, project.project_id, connections)
+
+        report = service.build_seo_conversion_audit_report(project.project_id)
+
+        self.assertEqual(report.attribution.status, "ready")
+        self.assertTrue(all(item.ready for item in report.baseline_readiness))
+        self.assertTrue(all(item.evidence_status == "observed" for item in report.findings))
+        self.assertTrue(all(item.ready for item in report.review_checkpoints))
+        app = create_app(service)
+        with TestClient(app) as client:
+            response = client.get(f"/api/projects/{project.project_id}/seo-conversion-audit")
+            detail_response = client.get(f"/api/projects/{project.project_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["attribution"]["status"], "ready")
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(detail_response.json()["seoConversionAudit"]["projectId"], project.project_id)
+
+    def test_seo_conversion_audit_does_not_accept_connected_metrics_without_completeness(self) -> None:
+        service = self._service()
+        intake = SiteIntake(
+            url="https://audit-incomplete.example",
+            site_name="Audit Incomplete",
+            approval_rules={"conversionGoal": "signup"},
+        )
+        project = service.create_project(ProjectCreateRequest(name="Audit Incomplete", intake=intake))
+        service.run_analysis(project.project_id, intake)
+        with service.database.session() as session:
+            connections = service._load_project_connections(session, project.project_id, intake)
+            for connection in connections:
+                if connection.provider in {ConnectorKind.search_console, ConnectorKind.ga4}:
+                    connection.status = ConnectorStatus.connected
+                    connection.details.update(
+                        {
+                            "authSource": "test",
+                            "recentEvidenceAt": datetime.now(timezone.utc).isoformat(),
+                            "metricsComplete": False,
+                            "metricsProvenance": "synthetic",
+                        }
+                    )
+                    connection.provenance = ["provider=test"]
+            service._persist_project_connections(session, project.project_id, connections)
+
+        report = service.build_seo_conversion_audit_report(project.project_id)
+
+        self.assertEqual(report.attribution.status, "needs_verification")
+        self.assertTrue(all(not item.ready for item in report.baseline_readiness))
+        self.assertTrue(all(not item.ready for item in report.review_checkpoints))
 
     def test_workspace_ad_audit_history_api_and_dashboard(self) -> None:
         service = self._service()
@@ -526,6 +688,54 @@ class SmokeWorkflowTests(unittest.TestCase):
         self.assertEqual(captured_headers.get("X-Ad-Token"), "Bearer ad-json-token")
         self.assertNotIn("Authorization", captured_headers)
         self.assertEqual(evidence.auth_source, "config:json")
+
+    def test_ad_network_adapter_does_not_invent_missing_provider_revenue_metrics(self) -> None:
+        intake = SiteIntake(url="https://publisher.example", site_name="Publisher")
+        connection = ProjectConnection(
+            connection_id="conn_ad_incomplete_metrics",
+            provider=ConnectorKind.ad_network,
+            label="Ad Network",
+            enabled=True,
+            status=ConnectorStatus.synthetic,
+            config={
+                "endpoint": "https://ad-provider.example/api",
+                "accountId": "acct-123",
+                "accessToken": "token-123",
+                "providerFamily": "adsense",
+            },
+        )
+        with patch(
+            "apps.api.seo_ad_autopilot.connectors._http_json",
+            return_value={"provider": "adsense", "id": "pub-123", "inventoryStatus": "ready"},
+        ):
+            project_connection, evidence = AdNetworkAdapter().probe(
+                ConnectorContext(project_id="project_1", task_id="task_1", intake=intake, connection=connection)
+            )
+
+        self.assertEqual(project_connection.status, ConnectorStatus.connected)
+        self.assertFalse(project_connection.details["metricsComplete"])
+        self.assertIn("estimatedRevenueDaily", project_connection.details["missingMetricFields"])
+        self.assertEqual(project_connection.details["impressions"], 0)
+        self.assertEqual(project_connection.details["estimatedRevenueDaily"], 0.0)
+        self.assertEqual(project_connection.details["settledRevenueDaily"], 0.0)
+        self.assertIn("reporting metrics are incomplete", evidence.summary)
+
+    def test_ad_network_incomplete_metrics_are_not_strict_eligible(self) -> None:
+        service = self._service()
+        connection = ProjectConnection(
+            connection_id="conn_ad_strict_metrics",
+            provider=ConnectorKind.ad_network,
+            label="Ad Network",
+            enabled=True,
+            status=ConnectorStatus.connected,
+            details={"authSource": "token", "metricsComplete": False, "missingMetricFields": ["rpm"]},
+        )
+
+        normalized = service._apply_connection_runtime_semantics(connection)
+
+        self.assertEqual(normalized.provider_mode, "real")
+        self.assertFalse(normalized.strict_eligible)
+        self.assertEqual(normalized.blocking_reason, "AD_NETWORK_METRICS_INCOMPLETE")
 
     def test_ad_network_refresh_uses_backup_endpoint_when_primary_fails(self) -> None:
         os.environ["SEO_AD_BOT_STRICT_PROVIDERS"] = "true"
@@ -3538,6 +3748,13 @@ class SmokeWorkflowTests(unittest.TestCase):
                 ),
             )
         )
+        service.run_analysis(
+            project.project_id,
+            SiteIntake(
+                url="https://runtime-edge-gateway-project.example",
+                site_name="Runtime Edge Gateway Project",
+            ),
+        )
         app = create_app(service)
 
         class _DeployResponse:
@@ -3562,9 +3779,11 @@ class SmokeWorkflowTests(unittest.TestCase):
                 ).encode("utf-8")
 
         response_holder = _DeployResponse()
+        response_holder.request_payload = {}
 
         def _mock_gateway_urlopen(request, timeout=5):
             response_holder.request_headers = {str(key).lower(): value for key, value in request.header_items()}
+            response_holder.request_payload = json.loads(request.data.decode("utf-8")) if request.data else {}
             return response_holder
 
         with TestClient(app) as client, patch("apps.api.seo_ad_autopilot.service.urlopen", side_effect=_mock_gateway_urlopen):
@@ -3615,6 +3834,8 @@ class SmokeWorkflowTests(unittest.TestCase):
             self.assertEqual(deployed_payload["providerArtifactId"], "runtime-edge-gateway-artifact-001")
             self.assertEqual(deployed_payload["providerUrl"], "https://runtime-edge-gateway.example/artifact/001")
             self.assertEqual(response_holder.request_headers.get("x-runtime-edge-token"), "Bearer runtime-edge-token")
+            self.assertTrue(response_holder.request_payload["routes"])
+            self.assertEqual(response_holder.request_payload["routes"][0]["projectId"], project.project_id)
             history = client.get("/api/runtime-edge/gateway/history")
             self.assertEqual(history.status_code, 200)
             history_payload = history.json()
@@ -7152,6 +7373,84 @@ class SmokeWorkflowTests(unittest.TestCase):
         self.assertEqual(refreshed.connection.details.get("endpoint"), "https://ga4-json.invalid/api")
         self.assertEqual(refreshed.connection.details.get("sessions"), 321)
 
+    def test_google_metric_adapters_preserve_real_zero_values(self) -> None:
+        intake = SiteIntake(
+            url="https://zero-metrics.example",
+            site_name="Zero Metrics",
+            search_console={"accessToken": "sc-token"},
+            ga4={"accessToken": "ga4-token", "propertyId": "12345"},
+        )
+        search_connection = ProjectConnection(
+            connection_id="conn_sc_zero",
+            provider=ConnectorKind.search_console,
+            label="Search Console",
+            config={"accessToken": "sc-token", "siteUrl": intake.url},
+        )
+        ga4_connection = ProjectConnection(
+            connection_id="conn_ga4_zero",
+            provider=ConnectorKind.ga4,
+            label="GA4",
+            config={"accessToken": "ga4-token", "propertyId": "12345"},
+        )
+        with patch("apps.api.seo_ad_autopilot.connectors._http_json", return_value={"rows": []}):
+            search_updated, search_evidence = SearchConsoleAdapter().probe(
+                ConnectorContext(project_id="project_zero", task_id=None, intake=intake, connection=search_connection)
+            )
+            ga4_updated, ga4_evidence = Ga4Adapter().probe(
+                ConnectorContext(project_id="project_zero", task_id=None, intake=intake, connection=ga4_connection)
+            )
+
+        self.assertEqual(search_updated.status, ConnectorStatus.connected)
+        self.assertEqual(search_evidence.details.get("clicks"), 0)
+        self.assertEqual(search_evidence.details.get("impressions"), 0)
+        self.assertEqual(search_evidence.details.get("queryThemes"), [])
+        self.assertTrue(search_evidence.details.get("metricsComplete"))
+        self.assertEqual(search_evidence.details.get("metricsProvenance"), "provider")
+        self.assertEqual(ga4_updated.status, ConnectorStatus.connected)
+        self.assertEqual(ga4_evidence.details.get("sessions"), 0)
+        self.assertEqual(ga4_evidence.details.get("conversions"), 0)
+        self.assertEqual(ga4_evidence.details.get("engagementRate"), 0)
+        self.assertTrue(ga4_evidence.details.get("metricsComplete"))
+        self.assertEqual(ga4_evidence.details.get("metricsProvenance"), "provider")
+
+    def test_metric_snapshot_does_not_infer_positive_delta_from_real_zero_ga4(self) -> None:
+        intake = SiteIntake(url="https://zero-delta.example", site_name="Zero Delta")
+        bundle = Coordinator(get_skill_registry()).run("task_zero_delta", intake, site_id="site_zero_delta")
+        ingestion = IngestionReport(
+            report_id="ingestion_zero_delta",
+            project_id="site_zero_delta",
+            task_id="task_zero_delta",
+            status=ConnectorStatus.connected,
+            evidence=[
+                SourceEvidence(
+                    provider=ConnectorKind.ga4,
+                    status=ConnectorStatus.connected,
+                    summary="Real GA4 zero metrics",
+                    provenance=["provider=test"],
+                    details={
+                        "sessions": 0,
+                        "conversions": 0,
+                        "engagementRate": 0,
+                        "metricsComplete": True,
+                        "metricsProvenance": "provider",
+                    },
+                    auth_source="test",
+                )
+            ],
+        )
+
+        metric = Coordinator(get_skill_registry()).strategist.build_metrics(
+            "site_zero_delta",
+            "task_zero_delta",
+            bundle.site_profile,
+            bundle.plan,
+            ingestion_report=ingestion,
+        )
+
+        self.assertEqual(metric.traffic_delta, 0)
+        self.assertEqual(metric.conversion_delta, 0)
+        self.assertIn("ga4 connected sessions=0 conversions=0", " ".join(metric.evidence))
+
     def test_search_console_refresh_uses_backup_endpoint_when_primary_fails(self) -> None:
         os.environ["SEO_AD_BOT_STRICT_PROVIDERS"] = "true"
         get_settings.cache_clear()
@@ -7935,6 +8234,92 @@ class SmokeWorkflowTests(unittest.TestCase):
         self.assertTrue(any(item.failure_code == "VISUAL_FARM_RATE_LIMITED" and not item.blocking for item in report.probes))
         self.assertTrue(any(item.alert_severity == "critical" for item in report.probes))
         self.assertTrue(any(item.alert_severity == "warning" for item in report.probes))
+
+    def test_visual_farm_probe_uses_readiness_endpoint_and_preserves_browser_failure(self) -> None:
+        os.environ["SEO_AD_BOT_VISUAL_FARM_ENDPOINT"] = "https://visual-farm.example/"
+        os.environ["SEO_AD_BOT_VISUAL_FARM_ACCESS_TOKEN"] = "visual-token"
+        os.environ["SEO_AD_BOT_VISUAL_FARM_STRICT"] = "true"
+        get_settings.cache_clear()
+        service = self._service()
+        seen_urls: list[str] = []
+
+        class _NotReadyResponse:
+            code = 503
+
+            def read(self) -> bytes:
+                return json.dumps(
+                    {
+                        "status": "not_ready",
+                        "chromiumReady": False,
+                        "failureCode": "VISUAL_FARM_CHROMIUM_UNAVAILABLE",
+                        "retryable": False,
+                        "message": "browser missing",
+                    }
+                ).encode("utf-8")
+
+            def close(self) -> None:
+                return None
+
+        class _LivenessResponse:
+            status = 200
+
+            def __enter__(self) -> "_LivenessResponse":
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> bool:
+                return False
+
+            def read(self) -> bytes:
+                return b'{"status":"ok","readinessUrl":"/readyz"}'
+
+        def _mock_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+            url = str(getattr(request, "full_url", ""))
+            seen_urls.append(url)
+            if url == "https://visual-farm.example/":
+                return _LivenessResponse()
+            raise HTTPError(url=url, code=503, msg="not ready", hdrs=None, fp=_NotReadyResponse())
+
+        with patch("apps.api.seo_ad_autopilot.service.urlopen", side_effect=_mock_urlopen):
+            report = service.probe_visual_farm()
+
+        self.assertEqual(seen_urls, ["https://visual-farm.example/", "https://visual-farm.example/readyz"])
+        self.assertEqual(report.connected_count, 0)
+        self.assertEqual(report.blocking_count, 1)
+        self.assertEqual(report.probes[0].failure_code, "VISUAL_FARM_CHROMIUM_UNAVAILABLE")
+        self.assertFalse(report.probes[0].retryable)
+
+    def test_visual_farm_probe_accepts_verified_chromium_readiness(self) -> None:
+        os.environ["SEO_AD_BOT_VISUAL_FARM_ENDPOINT"] = "https://visual-farm.example/"
+        os.environ["SEO_AD_BOT_VISUAL_FARM_ACCESS_TOKEN"] = "visual-token"
+        get_settings.cache_clear()
+        service = self._service()
+
+        class _ReadyResponse:
+            status = 200
+
+            def __init__(self, payload: dict[str, object]) -> None:
+                self.payload = payload
+
+            def __enter__(self) -> "_ReadyResponse":
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> bool:
+                return False
+
+            def read(self) -> bytes:
+                return json.dumps(self.payload).encode("utf-8")
+
+        responses = [
+            _ReadyResponse({"status": "ok", "readinessUrl": "/readyz"}),
+            _ReadyResponse({"status": "ready", "chromiumReady": True, "browserVersion": "Chromium test"}),
+        ]
+
+        with patch("apps.api.seo_ad_autopilot.service.urlopen", side_effect=responses):
+            report = service.probe_visual_farm()
+
+        self.assertEqual(report.connected_count, 1)
+        self.assertEqual(report.blocking_count, 0)
+        self.assertIn("browser runtime ready", report.probes[0].message or "")
 
     def test_visual_farm_supports_credentials_json(self) -> None:
         with patch.dict(
@@ -14091,6 +14476,60 @@ class SmokeWorkflowTests(unittest.TestCase):
                 self.assertEqual(payload["execution"]["status"], "blocked")
                 self.assertEqual(payload["execution"]["failureCode"], "SETTLEMENT_AD_EVIDENCE_STALE")
 
+    def test_workspace_billing_settlement_strict_blocks_incomplete_ad_metrics(self) -> None:
+        with patch.dict(os.environ, {"SEO_AD_BOT_STRICT_PROVIDERS": "true"}, clear=False):
+            service = self._service()
+            intake = SiteIntake(
+                url="https://strict-settlement-incomplete.example",
+                site_name="Strict Settlement Incomplete Metrics",
+                keywords=["billing", "settlement"],
+            )
+            project = service.create_project(
+                ProjectCreateRequest(name="Strict Settlement Incomplete Metrics", intake=intake)
+            )
+            now = datetime.now(timezone.utc)
+            with service.database.session() as session:
+                connections = service._load_project_connections(session, project.project_id, intake)
+                ad_connection = next(item for item in connections if item.provider == ConnectorKind.ad_network)
+                ad_connection.status = ConnectorStatus.connected
+                ad_connection.last_success_at = now
+                ad_connection.last_checked_at = now
+                ad_connection.last_synced_at = now
+                ad_connection.details.update(
+                    {
+                        "authSource": "token",
+                        "mode": "direct",
+                        "recentEvidenceAt": now.isoformat(),
+                        "providerRef": "pub-incomplete",
+                        "metricsComplete": False,
+                        "missingMetricFields": ["estimatedRevenueDaily", "settledRevenueDaily"],
+                    }
+                )
+                service._persist_project_connections(session, project.project_id, connections)
+            service.update_billing_policy(
+                WorkspaceBillingPolicyUpdateRequest(
+                    commercial_mode_enabled=True,
+                    settlement_enabled=True,
+                    settlement_provider_name="manual",
+                    settlement_account_ref="acct_demo_001",
+                    settlement_payout_threshold_cents=0,
+                )
+            )
+
+            with patch.object(service, "refresh_project_connector", return_value=SimpleNamespace(connection=ad_connection)):
+                executed = service.execute_workspace_billing_settlement(
+                    WorkspaceBillingSettlementExecutionRequest(
+                        dry_run=False,
+                        provider_name="ad_network",
+                        project_id=project.project_id,
+                    )
+                )
+
+        self.assertEqual(executed.execution.status, "blocked")
+        self.assertEqual(executed.execution.failure_code, "SETTLEMENT_AD_EVIDENCE_INCOMPLETE")
+        self.assertFalse(executed.execution.provider_payload["adEvidence"]["metricsComplete"])
+        self.assertIn("adEvidenceMetricsComplete=false", executed.execution.notes)
+
     def test_workspace_billing_settlement_strict_refreshes_ad_evidence_before_blocking(self) -> None:
         with patch.dict(os.environ, {"SEO_AD_BOT_STRICT_PROVIDERS": "true"}, clear=False):
             service = self._service()
@@ -16592,6 +17031,33 @@ class SmokeWorkflowTests(unittest.TestCase):
         self.assertIn("search_console", providers)
         self.assertIn("ga4", providers)
 
+    def test_strict_providers_block_connected_google_sources_with_incomplete_metrics(self) -> None:
+        os.environ["SEO_AD_BOT_STRICT_PROVIDERS"] = "true"
+        get_settings.cache_clear()
+        service = self._service()
+        intake = SiteIntake(url="https://strict-incomplete.example", site_name="Strict Incomplete")
+        project = service.create_project(ProjectCreateRequest(name="Strict Incomplete", intake=intake))
+        bundle = service.run_analysis(project.project_id, intake)
+        self.assertIsNotNone(bundle.ingestion_report)
+        incomplete_evidence = [
+            SourceEvidence(
+                provider=provider,
+                status=ConnectorStatus.connected,
+                summary="Connected but incomplete metrics",
+                provenance=["provider=test"],
+                details={"metricsComplete": False, "metricsProvenance": "synthetic"},
+                auth_source="test",
+            )
+            for provider in (ConnectorKind.search_console, ConnectorKind.ga4)
+        ]
+        bundle.ingestion_report.evidence.extend(incomplete_evidence)
+
+        blockers = service._strict_publish_blockers(bundle)  # noqa: SLF001 - strict gate verification
+
+        failure_codes = {str(item.get("failureCode") or "") for item in blockers}
+        self.assertIn("SEARCH_CONSOLE_METRICS_INCOMPLETE", failure_codes)
+        self.assertIn("GA4_METRICS_INCOMPLETE", failure_codes)
+
     def test_strict_providers_block_when_configured_read_evidence_is_stale(self) -> None:
         os.environ["SEO_AD_BOT_STRICT_PROVIDERS"] = "true"
         os.environ["SEO_AD_BOT_PROVIDER_EVIDENCE_FRESHNESS_MINUTES"] = "60"
@@ -18279,6 +18745,233 @@ class SmokeWorkflowTests(unittest.TestCase):
         self.assertEqual(by_provider["ad_network"].config.get("accountId"), "acct_123")
         self.assertEqual(by_provider["ad_network"].config.get("timeoutMs"), 9100)
         self.assertEqual(by_provider["ad_network"].config.get("authHeader"), "X-Ad-Auth")
+
+    def test_github_connection_probe_is_read_only(self) -> None:
+        connection = ProjectConnection(
+            connection_id="conn_github_read_only",
+            provider=ConnectorKind.github,
+            label="GitHub",
+            config={
+                "repoUrl": "https://github.com/example/read-only-probe",
+                "accessToken": "github-token",
+            },
+        )
+        intake = SiteIntake(
+            url="https://github-read-only.example",
+            site_name="GitHub Read Only",
+            repo_url="https://github.com/example/read-only-probe",
+        )
+        calls: list[dict[str, object]] = []
+
+        def fake_http_json(url: str, **kwargs: object) -> dict[str, object]:
+            calls.append({"url": url, **kwargs})
+            return {"id": 42, "full_name": "example/read-only-probe", "html_url": "https://github.com/example/read-only-probe"}
+
+        with patch("apps.api.seo_ad_autopilot.connectors._http_json", side_effect=fake_http_json):
+            updated, evidence = GitHubAdapter().probe(
+                ConnectorContext(project_id="project_read_only", task_id=None, intake=intake, connection=connection)
+            )
+
+        self.assertEqual(updated.status, ConnectorStatus.connected)
+        self.assertEqual(evidence.status, ConnectorStatus.connected)
+        self.assertTrue(updated.details.get("writeProbeDeferred"))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["method"], "GET")
+        self.assertNotIn("payload", calls[0])
+        self.assertNotIn("/pulls", str(calls[0]["url"]))
+
+    def test_stripe_sdk_settlement_executes_connect_transfer_with_idempotency(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "SEO_AD_BOT_BILLING_GATEWAY_STRIPE_ADAPTER": "stripe_sdk",
+                "SEO_AD_BOT_BILLING_GATEWAY_STRIPE_SECRET_KEY": "sk_test_sdk_secret",
+                "SEO_AD_BOT_BILLING_GATEWAY_STRIPE_URL": "",
+                "SEO_AD_BOT_BILLING_GATEWAY_STRIPE_TOKEN": "",
+            },
+            clear=False,
+        ):
+            service = self._service()
+            app = create_app(service)
+            calls: dict[str, object] = {}
+
+            class _StripeTransfers:
+                def create(self, params, options):
+                    calls["params"] = params
+                    calls["options"] = options
+                    return SimpleNamespace(id="tr_sdk_001", livemode=False)
+
+            stripe_client = SimpleNamespace(v1=SimpleNamespace(transfers=_StripeTransfers()))
+            with TestClient(app) as client, patch("stripe.StripeClient", return_value=stripe_client) as client_factory:
+                self._configure_stripe_sdk_settlement(client)
+                providers = client.get("/api/billing/gateway/providers")
+                self.assertEqual(providers.status_code, 200)
+                stripe_status = next(
+                    entry for entry in providers.json()["entries"] if entry["providerName"] == "stripe"
+                )
+                self.assertTrue(stripe_status["configured"])
+                self.assertTrue(stripe_status["strictReady"])
+                self.assertIsNone(stripe_status["endpoint"])
+                response = client.post(
+                    "/api/billing/settlement/execute",
+                    json={
+                        "dryRun": False,
+                        "providerName": "stripe",
+                        "amountCents": 14500,
+                        "memo": "official SDK payout",
+                        "destinationType": "connected_account",
+                        "destinationRef": "acct_CONNECTED001",
+                        "metadata": {
+                            "idempotencyKey": "settlement-project-apr-2026",
+                            "transferGroup": "seo_ad_apr_2026",
+                        },
+                    },
+                    headers={"X-API-Key": "dev-key"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            execution = response.json()["execution"]
+            self.assertEqual(execution["status"], "completed")
+            self.assertEqual(execution["providerMode"], "stripe_sdk")
+            self.assertEqual(execution["transactionRef"], "tr_sdk_001")
+            self.assertEqual(execution["providerEndpoint"], "stripe://transfers")
+            self.assertEqual(execution["providerUrl"], "https://dashboard.stripe.com/test/transfers/tr_sdk_001")
+            self.assertEqual(calls["params"]["amount"], 14065)
+            self.assertEqual(calls["params"]["currency"], "usd")
+            self.assertEqual(calls["params"]["destination"], "acct_CONNECTED001")
+            self.assertEqual(calls["params"]["transfer_group"], "seo_ad_apr_2026")
+            self.assertEqual(calls["options"], {"idempotency_key": "settlement-project-apr-2026"})
+            client_factory.assert_called_once_with("sk_test_sdk_secret", max_network_retries=2)
+
+    def test_stripe_sdk_settlement_blocks_without_idempotency_key(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "SEO_AD_BOT_BILLING_GATEWAY_STRIPE_ADAPTER": "stripe_sdk",
+                "SEO_AD_BOT_BILLING_GATEWAY_STRIPE_SECRET_KEY": "sk_test_sdk_secret",
+                "SEO_AD_BOT_BILLING_GATEWAY_STRIPE_URL": "",
+                "SEO_AD_BOT_BILLING_GATEWAY_STRIPE_TOKEN": "",
+            },
+            clear=False,
+        ):
+            service = self._service()
+            app = create_app(service)
+            with TestClient(app) as client, patch("stripe.StripeClient") as client_factory:
+                self._configure_stripe_sdk_settlement(client)
+                response = client.post(
+                    "/api/billing/settlement/execute",
+                    json={
+                        "dryRun": False,
+                        "providerName": "stripe",
+                        "amountCents": 14500,
+                        "destinationType": "connected_account",
+                        "destinationRef": "acct_CONNECTED001",
+                    },
+                    headers={"X-API-Key": "dev-key"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            execution = response.json()["execution"]
+            self.assertEqual(execution["status"], "blocked")
+            self.assertEqual(execution["failureCode"], "STRIPE_IDEMPOTENCY_KEY_REQUIRED")
+            self.assertFalse(execution["retryable"])
+            client_factory.assert_not_called()
+
+    def test_stripe_sdk_settlement_marks_rate_limit_retryable(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "SEO_AD_BOT_BILLING_GATEWAY_STRIPE_ADAPTER": "stripe_sdk",
+                "SEO_AD_BOT_BILLING_GATEWAY_STRIPE_SECRET_KEY": "sk_test_sdk_secret",
+                "SEO_AD_BOT_BILLING_GATEWAY_STRIPE_URL": "",
+                "SEO_AD_BOT_BILLING_GATEWAY_STRIPE_TOKEN": "",
+            },
+            clear=False,
+        ):
+            service = self._service()
+            app = create_app(service)
+            rate_limit_error = type("RateLimitError", (Exception,), {})
+
+            class _StripeTransfers:
+                def create(self, params, options):
+                    raise rate_limit_error("rate limited")
+
+            stripe_client = SimpleNamespace(v1=SimpleNamespace(transfers=_StripeTransfers()))
+            with TestClient(app) as client, patch("stripe.StripeClient", return_value=stripe_client):
+                self._configure_stripe_sdk_settlement(client)
+                response = client.post(
+                    "/api/billing/settlement/execute",
+                    json={
+                        "dryRun": False,
+                        "providerName": "stripe",
+                        "amountCents": 14500,
+                        "destinationType": "connected_account",
+                        "destinationRef": "acct_CONNECTED001",
+                        "metadata": {"idempotencyKey": "settlement-rate-limit-001"},
+                    },
+                    headers={"X-API-Key": "dev-key"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            execution = response.json()["execution"]
+            self.assertEqual(execution["status"], "failed")
+            self.assertEqual(execution["failureCode"], "STRIPE_RATE_LIMITED")
+            self.assertTrue(execution["retryable"])
+            self.assertEqual(execution["providerMode"], "stripe_sdk")
+
+    def test_google_oauth_refresh_and_search_console_site_url_encoding(self) -> None:
+        with patch(
+            "apps.api.seo_ad_autopilot.connectors._http_form_json",
+            return_value={"access_token": "refreshed-google-token", "expires_in": 3600},
+        ) as refresh_request:
+            token_result = _resolve_google_access_token(
+                {
+                    "refreshToken": "refresh-token",
+                    "clientId": "client-id",
+                    "clientSecret": "client-secret",
+                },
+                "SEARCH_CONSOLE",
+            )
+        self.assertEqual(token_result.access_token, "refreshed-google-token")
+        self.assertTrue(token_result.auth_source.startswith("oauth-refresh:"))
+        self.assertEqual(refresh_request.call_args.kwargs["payload"]["grant_type"], "refresh_token")
+
+        with patch(
+            "apps.api.seo_ad_autopilot.connectors._http_form_json",
+            return_value={"expires_in": 3600},
+        ):
+            invalid_token_result = _resolve_google_access_token(
+                {
+                    "refreshToken": "refresh-token",
+                    "clientId": "client-id",
+                    "clientSecret": "client-secret",
+                },
+                "GA4",
+            )
+        self.assertEqual(invalid_token_result.failure_code, "GA4_OAUTH_INVALID_RESPONSE")
+        self.assertFalse(invalid_token_result.retryable)
+
+        connection = ProjectConnection(
+            connection_id="conn_search_console_encoded",
+            provider=ConnectorKind.search_console,
+            label="Search Console",
+            config={"siteUrl": "https://www.example.com/", "accessToken": "search-console-token"},
+        )
+        intake = SiteIntake(url="https://www.example.com/", site_name="Search Console Encoding")
+        calls: list[str] = []
+
+        def fake_http_json(url: str, **_: object) -> dict[str, object]:
+            calls.append(url)
+            return {"rows": [{"keys": ["seo"], "clicks": 10, "impressions": 100}]}
+
+        with patch("apps.api.seo_ad_autopilot.connectors._http_json", side_effect=fake_http_json):
+            updated, evidence = SearchConsoleAdapter().probe(
+                ConnectorContext(project_id="project_search_console", task_id=None, intake=intake, connection=connection)
+            )
+
+        self.assertEqual(updated.status, ConnectorStatus.connected)
+        self.assertEqual(evidence.status, ConnectorStatus.connected)
+        self.assertIn("https%3A%2F%2Fwww.example.com%2F", calls[0])
 
 
 if __name__ == "__main__":

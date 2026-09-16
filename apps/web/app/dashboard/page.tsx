@@ -3,8 +3,10 @@ import Link from "next/link";
 import { getOverview } from "@/lib/api";
 import { fallbackDashboard } from "@/lib/fallback";
 import { formatDateTime } from "@/lib/format";
+import { getServerI18n } from "@/lib/i18n/server";
 
 export default async function DashboardPage() {
+  const { locale, t } = getServerI18n();
   let overview = fallbackDashboard;
   let dataSource: "live" | "fallback" = "fallback";
 
@@ -32,64 +34,62 @@ export default async function DashboardPage() {
   return (
     <div className="page">
       <section className="hero">
-        <div className="eyebrow">Dashboard</div>
-        <h1>实时工作台</h1>
-        <p className="hero-copy">
-          汇总后端项目、任务、审批和风险阈值，替代原来的静态演示数据。
-        </p>
+        <div className="eyebrow">{t("dashboard.eyebrow")}</div>
+        <h1>{t("dashboard.title")}</h1>
+        <p className="hero-copy">{t("dashboard.description")}</p>
         <div className="hero-actions">
           <Link className="button button-primary button-link" href="/projects/new">
-            新建项目
+            {t("dashboard.new_project")}
           </Link>
           <Link className="button button-secondary button-link" href="/projects">
-            打开项目列表
+            {t("dashboard.open_projects")}
           </Link>
         </div>
         <div className="hero-meta">
           <span className={`status-badge ${dataSource === "live" ? "good" : "warn"}`}>
-            {dataSource === "live" ? "Live API" : "Fallback data"}
+            {dataSource === "live" ? t("dashboard.live_api") : t("dashboard.fallback_data")}
           </span>
-          <span className="status-badge accent">Generated {formatDateTime(overview.generatedAt)}</span>
+          <span className="status-badge accent">{t("dashboard.generated")} {formatDateTime(overview.generatedAt, locale)}</span>
         </div>
       </section>
 
       <section className="panel">
         <div className="section-heading">
           <div>
-            <div className="eyebrow">Current state</div>
-            <h2>工作区健康度</h2>
+            <div className="eyebrow">{t("dashboard.current_state")}</div>
+            <h2>{t("dashboard.workspace_health")}</h2>
           </div>
         </div>
         <div className="stat-grid">
           <div className="stat-card">
-            <div className="stat-label">Projects</div>
+            <div className="stat-label">{t("dashboard.projects")}</div>
             <div className="stat-value">{totalProjects}</div>
-            <div className="stat-caption">后端工作区项目总数</div>
+            <div className="stat-caption">{t("dashboard.projects_caption")}</div>
           </div>
           <div className="stat-card">
-            <div className="stat-label">Active</div>
+            <div className="stat-label">{t("dashboard.active")}</div>
             <div className="stat-value">{activeProjects}</div>
-            <div className="stat-caption">分析、预览或监控中的项目</div>
+            <div className="stat-caption">{t("dashboard.active_caption")}</div>
           </div>
           <div className="stat-card">
-            <div className="stat-label">Deployed</div>
+            <div className="stat-label">{t("dashboard.deployed")}</div>
             <div className="stat-value">{deployedProjects}</div>
-            <div className="stat-caption">已发布项目</div>
+            <div className="stat-caption">{t("dashboard.deployed_caption")}</div>
           </div>
           <div className="stat-card">
-            <div className="stat-label">Awaiting approval</div>
+            <div className="stat-label">{t("dashboard.awaiting")}</div>
             <div className="stat-value">{awaitingApproval}</div>
-            <div className="stat-caption">等待人工审批的任务</div>
+            <div className="stat-caption">{t("dashboard.awaiting_caption")}</div>
           </div>
           <div className="stat-card">
-            <div className="stat-label">High risk</div>
+            <div className="stat-label">{t("dashboard.high_risk")}</div>
             <div className="stat-value">{highRisk}</div>
-            <div className="stat-caption">达到阻断阈值 {overview.policy.blockAutoDeployThreshold}</div>
+            <div className="stat-caption">{t("dashboard.high_risk_caption")} {overview.policy.blockAutoDeployThreshold}</div>
           </div>
           <div className="stat-card">
-            <div className="stat-label">Avg risk</div>
+            <div className="stat-label">{t("dashboard.average_risk")}</div>
             <div className="stat-value">{avgRisk}</div>
-            <div className="stat-caption">按项目 riskScore 计算</div>
+            <div className="stat-caption">{t("dashboard.average_risk_caption")}</div>
           </div>
         </div>
       </section>
@@ -97,8 +97,8 @@ export default async function DashboardPage() {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <div className="eyebrow">Recent activity</div>
-            <h2>最近项目更新</h2>
+            <div className="eyebrow">{t("dashboard.recent_activity")}</div>
+            <h2>{t("dashboard.recent_updates")}</h2>
           </div>
         </div>
         <div className="stack">
@@ -106,42 +106,46 @@ export default async function DashboardPage() {
             <article className="audit-card" key={project.projectId}>
               <div className="audit-head">
                 <strong>{project.name}</strong>
-                <span className="status-badge">{project.latestStage}</span>
+                <span className="status-badge">{t(`workflow_stages.${project.latestStage}`)}</span>
               </div>
-              <div className="project-copy">{project.recommendation}</div>
+              <div className="project-copy">
+                {t(`workflow_recommendations.${project.latestStage}`) === `workflow_recommendations.${project.latestStage}`
+                  ? project.recommendation
+                  : t(`workflow_recommendations.${project.latestStage}`)}
+              </div>
               <div className="metric-row">
                 <span>{project.url}</span>
-                <strong>{formatDateTime(project.updatedAt)}</strong>
+                <strong>{formatDateTime(project.updatedAt, locale)}</strong>
               </div>
               <div className="project-foot">
-                <span>risk {project.riskScore}</span>
-                <Link href={`/projects/${project.projectId}`}>Open</Link>
+                <span>{t("dashboard.risk")} {project.riskScore}</span>
+                <Link href={`/projects/${project.projectId}`}>{t("dashboard.open")}</Link>
               </div>
             </article>
           ))}
-          {recentProjects.length === 0 ? <div className="empty-state">暂无项目更新</div> : null}
+          {recentProjects.length === 0 ? <div className="empty-state">{t("dashboard.no_updates")}</div> : null}
         </div>
       </section>
 
       <section className="panel">
         <div className="section-heading">
           <div>
-            <div className="eyebrow">Quick actions</div>
-            <h2>快速操作</h2>
+            <div className="eyebrow">{t("dashboard.quick_actions")}</div>
+            <h2>{t("dashboard.quick_actions")}</h2>
           </div>
         </div>
         <div className="grid-three">
           <Link href="/analyze" className="audit-card" style={{ textDecoration: "none" }}>
-            <div className="audit-head"><strong>单站分析</strong></div>
-            <div className="project-copy">输入 URL 开始 SEO/GEO/广告分析</div>
+            <div className="audit-head"><strong>{t("dashboard.site_analysis")}</strong></div>
+            <div className="project-copy">{t("dashboard.site_analysis_description")}</div>
           </Link>
           <Link href="/approvals" className="audit-card" style={{ textDecoration: "none" }}>
-            <div className="audit-head"><strong>审批队列</strong></div>
-            <div className="project-copy">处理 {overview.approvals.length} 个审批请求</div>
+            <div className="audit-head"><strong>{t("dashboard.approval_queue")}</strong></div>
+            <div className="project-copy">{t("dashboard.approval_queue_description")} · {overview.approvals.length}</div>
           </Link>
           <Link href="/monitor" className="audit-card" style={{ textDecoration: "none" }}>
-            <div className="audit-head"><strong>监控</strong></div>
-            <div className="project-copy">查看 {overview.alerts.length} 条告警和策略提示</div>
+            <div className="audit-head"><strong>{t("dashboard.monitor")}</strong></div>
+            <div className="project-copy">{t("dashboard.monitor_description")} · {overview.alerts.length}</div>
           </Link>
         </div>
       </section>

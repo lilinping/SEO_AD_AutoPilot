@@ -3,8 +3,10 @@ import Link from "next/link";
 import { ProjectsBulkActions } from "@/components/ProjectsBulkActions";
 import { getProjects } from "@/lib/api";
 import { fallbackDashboard } from "@/lib/fallback";
+import { getServerI18n } from "@/lib/i18n/server";
 
 export default async function ProjectsPage() {
+  const { t } = getServerI18n();
   let projects = fallbackDashboard.projects;
   let dataSource: "live" | "fallback" = "fallback";
 
@@ -18,12 +20,12 @@ export default async function ProjectsPage() {
   return (
     <div className="page">
       <section className="hero">
-        <div className="eyebrow">Projects</div>
-        <h1>项目管理</h1>
-        <p className="hero-copy">管理后端工作区里的所有 SEO/GEO/广告自动化项目。</p>
+        <div className="eyebrow">{t("projects.eyebrow")}</div>
+        <h1>{t("projects.title")}</h1>
+        <p className="hero-copy">{t("projects.hero_description")}</p>
         <div className="hero-actions">
           <Link className="button button-primary button-link" href="/projects/new">
-            + 新建项目
+            {t("projects.new_project")}
           </Link>
         </div>
       </section>
@@ -31,21 +33,21 @@ export default async function ProjectsPage() {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <div className="eyebrow">所有项目</div>
-            <h2>项目列表 ({projects.length})</h2>
+            <div className="eyebrow">{t("projects.all_projects")}</div>
+            <h2>{t("projects.project_list")} ({projects.length})</h2>
           </div>
           <p>
             {dataSource === "live"
-              ? "当前展示后端工作区项目，可直接打开详情或批量同步。"
-              : "后端不可用，当前展示本地 fallback 示例数据。"}
+              ? t("projects.live_description")
+              : t("projects.fallback_description")}
           </p>
         </div>
 
         {projects.length === 0 ? (
           <div className="empty-state">
-            <p>还没有项目</p>
+            <p>{t("projects.no_projects_title")}</p>
             <Link className="button button-primary button-link" href="/projects/new">
-              创建第一个项目
+              {t("projects.create_first")}
             </Link>
           </div>
         ) : (

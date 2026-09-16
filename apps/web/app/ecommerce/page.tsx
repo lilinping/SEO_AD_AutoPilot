@@ -102,10 +102,10 @@ export default function EcommercePage() {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
-      if (!data.success) throw new Error(data.error || "分析失败");
+      if (!data.success) throw new Error(data.error || t("ecommerce.analysis_failed"));
       setResult(data.data);
     } catch (err) {
-      setError(`分析失败: ${err instanceof Error ? err.message : "无法连接后端"}`);
+      setError(`${t("ecommerce.analysis_failed")}: ${err instanceof Error ? err.message : t("ecommerce.cannot_connect")}`);
     } finally { setAnalyzing(false); }
   };
 
@@ -143,7 +143,7 @@ export default function EcommercePage() {
         <div className="input-group">
           <input type="url" placeholder="https://www.amazon.com/dp/B08N5WRWNW" value={url} onChange={e => setUrl(e.target.value)} className="input-field" disabled={analyzing} onKeyDown={e => e.key === "Enter" && handleAnalyze()} />
           <select value={platform} onChange={e => setPlatform(e.target.value)} className="input-field" style={{ width: "auto" }}>
-            <option value="auto">Auto-detect</option>
+            <option value="auto">{t("ecommerce.auto_detect")}</option>
             <option value="amazon">Amazon</option>
             <option value="shopify">Shopify</option>
             <option value="woocommerce">WooCommerce</option>
@@ -151,18 +151,18 @@ export default function EcommercePage() {
             <option value="custom">Custom</option>
           </select>
           <select value={scope} onChange={e => setScope(e.target.value)} className="input-field" style={{ width: "auto" }}>
-            <option value="full">Full Analysis</option>
-            <option value="listing">Listing Only</option>
-            <option value="pricing">Pricing</option>
-            <option value="conversion">Conversion</option>
-            <option value="competitors">Competitors</option>
+            <option value="full">{t("ecommerce.full_analysis")}</option>
+            <option value="listing">{t("ecommerce.listing_only")}</option>
+            <option value="pricing">{t("ecommerce.pricing")}</option>
+            <option value="conversion">{t("ecommerce.conversion")}</option>
+            <option value="competitors">{t("ecommerce.competitors")}</option>
           </select>
           <button onClick={handleAnalyze} disabled={analyzing || !url} className="button button-primary">
-            {analyzing ? "分析中..." : t("common.analyze") || "Analyze"}
+            {analyzing ? t("ecommerce.analyzing") : t("common.analyze")}
           </button>
         </div>
         <div style={{ marginTop: 8 }}>
-          <textarea placeholder="Competitor URLs (one per line, optional)" value={competitors} onChange={e => setCompetitors(e.target.value)} className="input-field" rows={2} style={{ width: "100%", resize: "vertical" }} />
+          <textarea placeholder={t("ecommerce.competitor_urls")} value={competitors} onChange={e => setCompetitors(e.target.value)} className="input-field" rows={2} style={{ width: "100%", resize: "vertical" }} />
         </div>
       </section>
 
@@ -181,21 +181,21 @@ export default function EcommercePage() {
         <>
           <section className="stat-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
             <div className="stat-card">
-              <div className="stat-card-label">Platform</div>
+              <div className="stat-card-label">{t("ecommerce.platform")}</div>
               <div className="stat-card-value" style={{ textTransform: "capitalize" }}>{result.platform}</div>
             </div>
             <div className="stat-card">
-              <div className="stat-card-label">Listing Grade</div>
+              <div className="stat-card-label">{t("ecommerce.listing_grade")}</div>
               <div className="stat-card-value" style={{ color: getGradeColor(result.summary.listing_grade) }}>{result.summary.listing_grade}</div>
               <div className="stat-card-caption">{Math.round(result.listing_score.overall)}%</div>
             </div>
             <div className="stat-card">
-              <div className="stat-card-label">Conversion Grade</div>
+              <div className="stat-card-label">{t("ecommerce.conversion_grade")}</div>
               <div className="stat-card-value" style={{ color: getGradeColor(result.summary.conversion_grade) }}>{result.summary.conversion_grade}</div>
               <div className="stat-card-caption">{Math.round(result.conversion_score.overall)}%</div>
             </div>
             <div className="stat-card">
-              <div className="stat-card-label">Recommendations</div>
+              <div className="stat-card-label">{t("ecommerce.recommendations")}</div>
               <div className="stat-card-value">{result.summary.total_recommendations}</div>
               <div className="stat-card-caption">{result.summary.critical_issues_count} critical · {result.summary.quick_wins_count} quick wins</div>
             </div>
@@ -203,23 +203,23 @@ export default function EcommercePage() {
 
           {result.product && (
             <section className="panel">
-              <div className="section-heading"><h3>Product Info</h3></div>
-              <div className="metric-row"><span>Brand</span><span>{result.product.brand || "—"}</span></div>
-              <div className="metric-row"><span>Title</span><span style={{ fontSize: "0.82rem" }}>{result.product.title || "—"}</span></div>
-              <div className="metric-row"><span>Price</span><span>{result.product.price ? `$${result.product.price}` : "—"}</span></div>
-              <div className="metric-row"><span>Bullets</span><span>{result.product.bullet_count}</span></div>
-              <div className="metric-row"><span>Images</span><span>{result.product.image_count}</span></div>
-              <div className="metric-row"><span>Rating</span><span>{result.product.rating ? `${result.product.rating}/5` : "—"}</span></div>
-              <div className="metric-row"><span>Reviews</span><span>{result.product.review_count.toLocaleString()}</span></div>
+              <div className="section-heading"><h3>{t("ecommerce.product_info")}</h3></div>
+              <div className="metric-row"><span>{t("ecommerce.brand")}</span><span>{result.product.brand || "—"}</span></div>
+              <div className="metric-row"><span>{t("ecommerce.product_title")}</span><span style={{ fontSize: "0.82rem" }}>{result.product.title || "—"}</span></div>
+              <div className="metric-row"><span>{t("ecommerce.price")}</span><span>{result.product.price ? `$${result.product.price}` : "—"}</span></div>
+              <div className="metric-row"><span>{t("ecommerce.bullets")}</span><span>{result.product.bullet_count}</span></div>
+              <div className="metric-row"><span>{t("ecommerce.images")}</span><span>{result.product.image_count}</span></div>
+              <div className="metric-row"><span>{t("ecommerce.rating")}</span><span>{result.product.rating ? `${result.product.rating}/5` : "—"}</span></div>
+              <div className="metric-row"><span>{t("ecommerce.reviews")}</span><span>{result.product.review_count.toLocaleString()}</span></div>
               <div className="metric-row"><span>A+ Content</span><span>{result.product.has_a_plus ? "✓" : "✗"}</span></div>
-              <div className="metric-row"><span>Video</span><span>{result.product.has_video ? "✓" : "✗"}</span></div>
+              <div className="metric-row"><span>{t("ecommerce.video")}</span><span>{result.product.has_video ? "✓" : "✗"}</span></div>
             </section>
           )}
 
           <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
             {(["overview", "listing", "conversion", "recommendations"] as const).map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)} className={`button ${activeTab === tab ? "button-primary" : "button-secondary"}`} style={{ textTransform: "capitalize" }}>
-                {tab}
+                {t(`ecommerce.${tab}`)}
               </button>
             ))}
           </div>
@@ -227,7 +227,7 @@ export default function EcommercePage() {
           {activeTab === "overview" && (
             <>
               <section className="panel">
-                <div className="section-heading"><h3>Listing Score Breakdown</h3></div>
+                <div className="section-heading"><h3>{t("ecommerce.listing_score_breakdown")}</h3></div>
                 {Object.entries(result.listing_score).filter(([k]) => k !== "overall").map(([key, val]) => (
                   <div key={key} className="metric-row">
                     <span style={{ textTransform: "capitalize" }}>{key.replace("_", " ")}</span>
@@ -241,7 +241,7 @@ export default function EcommercePage() {
                 ))}
               </section>
               <section className="panel">
-                <div className="section-heading"><h3>Conversion Score Breakdown</h3></div>
+                <div className="section-heading"><h3>{t("ecommerce.conversion_score_breakdown")}</h3></div>
                 {Object.entries(result.conversion_score).filter(([k]) => k !== "overall").map(([key, val]) => (
                   <div key={key} className="metric-row">
                     <span style={{ textTransform: "capitalize" }}>{key.replace("_", " ")}</span>
@@ -259,32 +259,32 @@ export default function EcommercePage() {
 
           {activeTab === "listing" && (
             <section className="panel">
-              <div className="section-heading"><h3>Listing Details</h3></div>
-              <div className="metric-row"><span>Title Length</span><span>{result.product.title?.length || 0} chars</span></div>
-              <div className="metric-row"><span>Bullet Points</span><span>{result.product.bullet_count} / 5</span></div>
-              <div className="metric-row"><span>Images</span><span>{result.product.image_count} / 7+</span></div>
-              <div className="metric-row"><span>A+ Content</span><span style={{ color: result.product.has_a_plus ? "#22c55e" : "#ef4444" }}>{result.product.has_a_plus ? "Available" : "Missing"}</span></div>
-              <div className="metric-row"><span>Product Video</span><span style={{ color: result.product.has_video ? "#22c55e" : "#ef4444" }}>{result.product.has_video ? "Available" : "Missing"}</span></div>
-              <div className="metric-row"><span>Variants</span><span>{result.product.has_variants ? "Yes" : "No"}</span></div>
-              <div className="metric-row"><span>Reviews</span><span>{result.product.review_count.toLocaleString()}</span></div>
-              <div className="metric-row"><span>Rating</span><span>{result.product.rating ?? "—"}</span></div>
+              <div className="section-heading"><h3>{t("ecommerce.listing_details")}</h3></div>
+              <div className="metric-row"><span>{t("ecommerce.title_length")}</span><span>{result.product.title?.length || 0} {t("ecommerce.characters")}</span></div>
+              <div className="metric-row"><span>{t("ecommerce.bullet_points")}</span><span>{result.product.bullet_count} / 5</span></div>
+              <div className="metric-row"><span>{t("ecommerce.images")}</span><span>{result.product.image_count} / 7+</span></div>
+              <div className="metric-row"><span>A+ Content</span><span style={{ color: result.product.has_a_plus ? "#22c55e" : "#ef4444" }}>{result.product.has_a_plus ? t("ecommerce.available") : t("ecommerce.missing")}</span></div>
+              <div className="metric-row"><span>{t("ecommerce.product_video")}</span><span style={{ color: result.product.has_video ? "#22c55e" : "#ef4444" }}>{result.product.has_video ? t("ecommerce.available") : t("ecommerce.missing")}</span></div>
+              <div className="metric-row"><span>{t("ecommerce.variants")}</span><span>{result.product.has_variants ? t("ecommerce.yes") : t("ecommerce.no")}</span></div>
+              <div className="metric-row"><span>{t("ecommerce.reviews")}</span><span>{result.product.review_count.toLocaleString()}</span></div>
+              <div className="metric-row"><span>{t("ecommerce.rating")}</span><span>{result.product.rating ?? "—"}</span></div>
             </section>
           )}
 
           {activeTab === "conversion" && result.conversion_signals && (
             <>
               <section className="panel">
-                <div className="section-heading"><h3>Conversion Signals</h3></div>
-                <div className="metric-row"><span>CTA Buttons</span><span>{result.conversion_signals.cta_count}</span></div>
-                <div className="metric-row"><span>CTA Texts</span><span style={{ fontSize: "0.78rem" }}>{result.conversion_signals.cta_texts.join(", ") || "—"}</span></div>
-                <div className="metric-row"><span>Add to Cart</span><span style={{ color: result.conversion_signals.has_add_to_cart ? "#22c55e" : "#ef4444" }}>{result.conversion_signals.has_add_to_cart ? "✓" : "✗"}</span></div>
-                <div className="metric-row"><span>Buy Now</span><span style={{ color: result.conversion_signals.has_buy_now ? "#22c55e" : "#ef4444" }}>{result.conversion_signals.has_buy_now ? "✓" : "✗"}</span></div>
-                <div className="metric-row"><span>Trust Badges</span><span style={{ color: result.conversion_signals.has_trust_badges ? "#22c55e" : "#ef4444" }}>{result.conversion_signals.has_trust_badges ? "✓" : "✗"}</span></div>
-                <div className="metric-row"><span>Return Policy</span><span style={{ color: result.conversion_signals.has_return_policy ? "#22c55e" : "#ef4444" }}>{result.conversion_signals.has_return_policy ? "✓" : "✗"}</span></div>
-                <div className="metric-row"><span>Free Shipping</span><span style={{ color: result.conversion_signals.has_free_shipping ? "#22c55e" : "#ef4444" }}>{result.conversion_signals.has_free_shipping ? "✓" : "✗"}</span></div>
-                <div className="metric-row"><span>Urgency Signals</span><span style={{ color: result.conversion_signals.has_urgency_signals ? "#22c55e" : "#ef4444" }}>{result.conversion_signals.has_urgency_signals ? "✓" : "✗"}</span></div>
-                <div className="metric-row"><span>Social Proof</span><span>{result.conversion_signals.social_proof_count.toLocaleString()}</span></div>
-                <div className="metric-row"><span>Stock Status</span><span>{result.conversion_signals.stock_indicator || "—"}</span></div>
+                <div className="section-heading"><h3>{t("ecommerce.conversion_signals")}</h3></div>
+                <div className="metric-row"><span>{t("ecommerce.cta_buttons")}</span><span>{result.conversion_signals.cta_count}</span></div>
+                <div className="metric-row"><span>{t("ecommerce.cta_texts")}</span><span style={{ fontSize: "0.78rem" }}>{result.conversion_signals.cta_texts.join(", ") || "—"}</span></div>
+                <div className="metric-row"><span>{t("ecommerce.add_to_cart")}</span><span style={{ color: result.conversion_signals.has_add_to_cart ? "#22c55e" : "#ef4444" }}>{result.conversion_signals.has_add_to_cart ? "✓" : "✗"}</span></div>
+                <div className="metric-row"><span>{t("ecommerce.buy_now")}</span><span style={{ color: result.conversion_signals.has_buy_now ? "#22c55e" : "#ef4444" }}>{result.conversion_signals.has_buy_now ? "✓" : "✗"}</span></div>
+                <div className="metric-row"><span>{t("ecommerce.trust_badges")}</span><span style={{ color: result.conversion_signals.has_trust_badges ? "#22c55e" : "#ef4444" }}>{result.conversion_signals.has_trust_badges ? "✓" : "✗"}</span></div>
+                <div className="metric-row"><span>{t("ecommerce.return_policy")}</span><span style={{ color: result.conversion_signals.has_return_policy ? "#22c55e" : "#ef4444" }}>{result.conversion_signals.has_return_policy ? "✓" : "✗"}</span></div>
+                <div className="metric-row"><span>{t("ecommerce.free_shipping")}</span><span style={{ color: result.conversion_signals.has_free_shipping ? "#22c55e" : "#ef4444" }}>{result.conversion_signals.has_free_shipping ? "✓" : "✗"}</span></div>
+                <div className="metric-row"><span>{t("ecommerce.urgency_signals")}</span><span style={{ color: result.conversion_signals.has_urgency_signals ? "#22c55e" : "#ef4444" }}>{result.conversion_signals.has_urgency_signals ? "✓" : "✗"}</span></div>
+                <div className="metric-row"><span>{t("ecommerce.social_proof")}</span><span>{result.conversion_signals.social_proof_count.toLocaleString()}</span></div>
+                <div className="metric-row"><span>{t("ecommerce.stock_status")}</span><span>{result.conversion_signals.stock_indicator || "—"}</span></div>
               </section>
             </>
           )}
@@ -293,7 +293,7 @@ export default function EcommercePage() {
             <>
               {result.critical_issues.length > 0 && (
                 <section className="panel" style={{ borderLeft: "3px solid #ef4444" }}>
-                  <div className="section-heading"><h3 style={{ color: "#ef4444" }}>Critical Issues ({result.critical_issues.length})</h3></div>
+                  <div className="section-heading"><h3 style={{ color: "#ef4444" }}>{t("ecommerce.critical_issues")} ({result.critical_issues.length})</h3></div>
                   {result.critical_issues.map((rec, i) => (
                     <div key={i} style={{ padding: "8px 0", borderBottom: i < result.critical_issues.length - 1 ? "1px solid var(--border)" : "none" }}>
                       <div style={{ fontWeight: 600, fontSize: "0.85rem", marginBottom: 4 }}>{rec.title}</div>
@@ -305,7 +305,7 @@ export default function EcommercePage() {
 
               {result.quick_wins.length > 0 && (
                 <section className="panel" style={{ borderLeft: "3px solid #22c55e" }}>
-                  <div className="section-heading"><h3 style={{ color: "#22c55e" }}>Quick Wins ({result.quick_wins.length})</h3></div>
+                  <div className="section-heading"><h3 style={{ color: "#22c55e" }}>{t("ecommerce.quick_wins")} ({result.quick_wins.length})</h3></div>
                   {result.quick_wins.map((rec, i) => (
                     <div key={i} style={{ padding: "8px 0", borderBottom: i < result.quick_wins.length - 1 ? "1px solid var(--border)" : "none" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
@@ -319,7 +319,7 @@ export default function EcommercePage() {
               )}
 
               <section className="panel">
-                <div className="section-heading"><h3>All Recommendations ({result.recommendations.length})</h3></div>
+                <div className="section-heading"><h3>{t("ecommerce.all_recommendations")} ({result.recommendations.length})</h3></div>
                 {result.recommendations.map((rec, i) => (
                   <div key={i} style={{ padding: "8px 0", borderBottom: i < result.recommendations.length - 1 ? "1px solid var(--border)" : "none" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>

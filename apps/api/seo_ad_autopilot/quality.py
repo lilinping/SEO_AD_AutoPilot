@@ -75,13 +75,14 @@ def _download_visual_farm_screenshot(url: str) -> bytes | None:
     if not target:
         return None
     settings = get_settings()
-    request = Request(
-        target,
-        headers={
-            "User-Agent": "SEO-AD-AutoPilot/1.0",
-            "Accept": "image/png,image/jpeg,image/webp,application/octet-stream,*/*",
-        },
-    )
+    token, auth_header, _ = _resolve_visual_farm_credentials()
+    headers = {
+        "User-Agent": "SEO-AD-AutoPilot/1.0",
+        "Accept": "image/png,image/jpeg,image/webp,application/octet-stream,*/*",
+    }
+    if token:
+        headers[auth_header or "Authorization"] = f"Bearer {token}"
+    request = Request(target, headers=headers)
     with urlopen(request, timeout=max(1, int(settings.visual_farm_timeout_ms / 1000))) as response:  # nosec - configured provider urls
         payload = response.read()
     return payload or None
@@ -664,6 +665,8 @@ def _run_visual_farm_case(case: VisualRegressionCase, *, strict_mode: bool) -> d
         "sampleId": case.sample_id,
         "name": case.name,
         "pageUrl": case.page_url,
+        "baselineUrl": case.baseline_url,
+        "previewUrl": case.preview_url,
         "baselineHtml": case.baseline_label,
         "previewHtml": case.preview_label,
         "expectedMaxDiffPercent": case.expected_max_diff_percent,

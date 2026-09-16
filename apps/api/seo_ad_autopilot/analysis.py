@@ -764,6 +764,7 @@ class Strategist:
                 source_status[item.provider.value] = item.status
                 if item.provider.value == "search_console":
                     external_metrics["searchConsole"] = item.details
+                    metrics_complete = item.details.get("metricsComplete") is True
                     clicks = int(item.details.get("clicks", 0) or 0)
                     impressions = int(item.details.get("impressions", 0) or 0)
                     query_themes = item.details.get("queryThemes", [])
@@ -784,11 +785,12 @@ class Strategist:
                             fallback_reason=item.fallback_reason,
                         )
                     )
-                    if item.status == ConnectorStatus.connected:
+                    if item.status == ConnectorStatus.connected and metrics_complete:
                         seo_score = min(100, seo_score + min(12, clicks // 50 + impressions // 500))
                         evidence.append(f"search_console connected clicks={clicks} impressions={impressions}")
                 elif item.provider.value == "ga4":
                     external_metrics["ga4"] = item.details
+                    metrics_complete = item.details.get("metricsComplete") is True
                     sessions = int(item.details.get("sessions", 0) or 0)
                     conversions = int(item.details.get("conversions", 0) or 0)
                     engagement_rate = float(item.details.get("engagementRate", 0) or 0)
@@ -803,14 +805,15 @@ class Strategist:
                             fallback_reason=item.fallback_reason,
                         )
                     )
-                    if item.status == ConnectorStatus.connected:
-                        traffic_delta = max(2, min(20, sessions // 300 or 2))
-                        conversion_delta = max(1, min(12, conversions // 5 or 1))
+                    if item.status == ConnectorStatus.connected and metrics_complete:
+                        traffic_delta = min(20, sessions // 300) if sessions > 0 else 0
+                        conversion_delta = min(12, conversions // 5) if conversions > 0 else 0
                         ad_fit = min(100, ad_fit + (2 if engagement_rate >= 0.65 else 0))
                         evidence.append(
                             f"ga4 connected sessions={sessions} conversions={conversions} engagementRate={engagement_rate}"
                         )
                 elif item.provider.value == "ad_network":
+                    metrics_complete = item.details.get("metricsComplete") is not False
                     external_metrics["adNetwork"] = {
                         "status": item.status.value,
                         "provenance": list(item.provenance),
@@ -824,6 +827,8 @@ class Strategist:
                         "rpm": float(item.details.get("rpm", 0) or 0),
                         "fillRate": float(item.details.get("fillRate", 0) or 0),
                         "impressions": int(float(item.details.get("impressions", 0) or 0)),
+                        "metricsComplete": metrics_complete,
+                        "missingMetricFields": list(item.details.get("missingMetricFields") or []),
                         "providerRef": item.details.get("providerRef"),
                         "inventoryStatus": item.details.get("inventoryStatus"),
                         "raw": item.details,
@@ -836,14 +841,26 @@ class Strategist:
                         SourceMetricSummary(
                             source="ad_network",
                             status=item.status,
-                            primary_metric=f"Revenue/day {revenue_daily:.1f}",
-                            secondary_metric=f"Fill rate {fill_rate:.2f}",
-                            tertiary_metric=f"RPM {rpm:.2f} · Impressions {impressions}",
+                            primary_metric=(
+                                f"Revenue/day {revenue_daily:.1f}"
+                                if metrics_complete
+                                else "Revenue reporting incomplete"
+                            ),
+                            secondary_metric=(
+                                f"Fill rate {fill_rate:.2f}"
+                                if metrics_complete
+                                else "Provider response is missing required metrics"
+                            ),
+                            tertiary_metric=(
+                                f"RPM {rpm:.2f} · Impressions {impressions}"
+                                if metrics_complete
+                                else ", ".join(item.details.get("missingMetricFields") or [])
+                            ),
                             auth_source=item.auth_source,
                             fallback_reason=item.fallback_reason,
                         )
                     )
-                    if item.status == ConnectorStatus.connected:
+                    if item.status == ConnectorStatus.connected and metrics_complete:
                         ad_fit = min(100, ad_fit + min(8, int(revenue_daily // 12) + (1 if fill_rate >= 0.6 else 0)))
                         conversion_delta = max(conversion_delta, min(10, int(revenue_daily // 15) + 1))
                         evidence.append(
@@ -899,9 +916,6 @@ class Strategist:
             evidence.append("synthetic metric baseline")
             traffic_delta = 5 if plan.risk_score < 70 else 2
             conversion_delta = 2 if plan.risk_score < 70 else 1
-        else:
-            traffic_delta = max(traffic_delta, 8 if plan.risk_score < 70 else 2)
-            conversion_delta = max(conversion_delta, 4 if plan.risk_score < 70 else 1)
         return MetricSnapshot(
             snapshot_id=new_id("metric"),
             project_id=project_id,

@@ -10,6 +10,7 @@ from .content import router as content_router
 from .ecommerce import router as ecommerce_router
 from .search_engines import router as search_engines_router
 from .settings import router as settings_router
+from .data_trust import router as data_trust_router
 
 all_routers = [
     ad_platforms_router,
@@ -23,4 +24,5 @@ all_routers = [
     ecommerce_router,
     search_engines_router,
     settings_router,
+    data_trust_router,
 ]
