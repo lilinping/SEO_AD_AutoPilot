@@ -31,6 +31,8 @@ from .header_bidding import (
     FloorPriceOptimizerSkill,
     AdRefreshStrategySkill,
 )
+from .ad_slot_auditor import AdSlotAuditorSkill
+from .rollback_executor import RollbackExecutorSkill
 
 __all__ = [
     # Base
@@ -87,4 +89,8 @@ __all__ = [
     "HeaderBiddingConfigGeneratorSkill",
     "FloorPriceOptimizerSkill",
     "AdRefreshStrategySkill",
+    # Ad slot auditor (PRD §5.2)
+    "AdSlotAuditorSkill",
+    # Rollback executor (Architecture §5.4)
+    "RollbackExecutorSkill",
 ]

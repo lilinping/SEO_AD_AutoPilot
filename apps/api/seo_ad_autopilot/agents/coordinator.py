@@ -541,7 +541,18 @@ class CoordinatorAgent(Agent):
         if all_outputs.get("geo_analysis"):
             skills.append({"skill": "GEOOptimizer", "params": {"url": context.url}, "priority": "high", "requires_approval": False})
         if all_outputs.get("ad_analysis"):
-            skills.append({"skill": "AdSlotAuditor", "params": {"url": context.url}, "priority": "medium", "requires_approval": False})
+            ad_analysis = all_outputs["ad_analysis"] or {}
+            skills.append({
+                "skill": "AdSlotAuditor",
+                "params": {
+                    "url": context.url,
+                    "strategy": ad_analysis.get("strategy", "conservative"),
+                    "page_type": (context.site_profile or {}).get("page_type", "unknown"),
+                    "site_business": (context.site_profile or {}).get("business_type", "unknown"),
+                },
+                "priority": "medium",
+                "requires_approval": False,
+            })
         return skills
 
     def _map_opportunity_to_skill(self, opportunity: dict[str, Any]) -> Optional[dict[str, Any]]:
