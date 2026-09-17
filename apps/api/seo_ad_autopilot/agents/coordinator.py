@@ -257,6 +257,9 @@ class CoordinatorAgent(Agent):
             except Exception:
                 debates = []
 
+        # ── 4.5 Score proposals with ScoringEngine ──────────────────────────
+        composite_score = self._score_proposals(context)
+
         # ── 5. Select skills ─────────────────────────────────────────────────
         skills = self._select_skills(context, {
             "site_profile":  context.site_profile,
@@ -267,7 +270,7 @@ class CoordinatorAgent(Agent):
 
         # ── 6. Build execution sequence ──────────────────────────────────────
         execution_sequence   = self._create_execution_sequence(skills, context)
-        approval_requirements = self._determine_approval_requirements(skills)
+        approval_requirements = self._determine_approval_requirements(skills, composite_score)
         monitoring_plan       = self._create_monitoring_plan(skills, context)
 
         # ── 7. Compute aggregate confidence ─────────────────────────────────
@@ -275,6 +278,10 @@ class CoordinatorAgent(Agent):
         avg_confidence = sum(confidences) / len(confidences) if confidences else 0.85
         risk_scores = [o.risk_score for o in agent_outputs.values()]
         avg_risk = sum(risk_scores) / len(risk_scores) if risk_scores else 0.15
+
+        # Use ScoringEngine risk if available, else fall back to agent average
+        if composite_score:
+            avg_risk = composite_score.risk.score / 100.0
 
         return AnalysisReport(
             url=context.url,
@@ -293,6 +300,7 @@ class CoordinatorAgent(Agent):
                 f"Analyzed {context.url} with {len(agent_outputs)} agents "
                 f"({'dry-run' if dry_run else 'live'}), "
                 f"{len(debates)} debates, {len(skills)} skills selected."
+                + (f" Deployment gate: {composite_score.deployment_gate}." if composite_score else "")
             ),
         )
 
@@ -575,9 +583,63 @@ class CoordinatorAgent(Agent):
                 sequence.append({"phase": 2, "step": len(sequence) + 1, "skill": skill["skill"], "params": skill["params"], "parallel": False})
         return sequence
 
-    def _determine_approval_requirements(self, skills: list[dict[str, Any]]) -> dict[str, Any]:
+    def _determine_approval_requirements(
+        self,
+        skills: list[dict[str, Any]],
+        composite_score: Any = None,
+    ) -> dict[str, Any]:
         requires = [s for s in skills if s.get("requires_approval")]
-        return {"total_skills": len(skills), "requires_approval": len(requires), "auto_approved": len(skills) - len(requires), "approval_threshold": "medium"}
+        result = {
+            "total_skills": len(skills),
+            "requires_approval": len(requires),
+            "auto_approved": len(skills) - len(requires),
+            "approval_threshold": "medium",
+        }
+
+        # Integrate ScoringEngine deployment gate (Architecture §7.2)
+        if composite_score:
+            result["deployment_gate"] = composite_score.deployment_gate
+            result["gate_reasons"] = composite_score.gate_reasons
+            result["scoring"] = composite_score.to_dict()
+
+            # Block auto-approve when gate is block
+            if composite_score.deployment_gate == "block":
+                result["auto_approved"] = 0
+                result["requires_approval"] = len(skills)
+                result["blocked"] = True
+            elif composite_score.deployment_gate == "require_approval":
+                result["auto_approved"] = 0
+                result["requires_approval"] = len(skills)
+
+        return result
+
+    def _score_proposals(self, context: SiteContext):
+        """Run ScoringEngine on the top opportunity (Architecture §6.2)."""
+        try:
+            from ..scoring import get_scoring_engine
+
+            engine = get_scoring_engine()
+            opportunities = context.opportunities or []
+            top_opp = opportunities[0] if opportunities else {}
+
+            # Build page snapshot from context
+            page_snapshot = {
+                "is_mobile_friendly": context.raw_data.get("is_mobile_friendly", True),
+                "lcp_ms": context.raw_data.get("lcp_ms", 2500),
+                "cls": context.raw_data.get("cls", 0.1),
+                "template_type": (context.site_profile or {}).get("page_type", "unknown"),
+                "content": context.raw_data.get("content", ""),
+                "is_js_rendered": context.raw_data.get("is_js_rendered", False),
+            }
+
+            return engine.score_proposal(
+                site_profile=context.site_profile or {},
+                opportunity=top_opp,
+                page_snapshot=page_snapshot,
+                ad_analysis=context.ad_analysis or {},
+            )
+        except Exception:
+            return None
 
     def _create_monitoring_plan(self, skills: list[dict[str, Any]], context: SiteContext) -> dict[str, Any]:
         return {

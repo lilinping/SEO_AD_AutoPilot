@@ -1,6 +1,6 @@
 """Skills execution layer for SEO_AD_BOT.
 
-All 19 skill classes are exported here.
+All skill classes are exported here. See Architecture §5.2-5.4 for skill taxonomy.
 """
 
 from .base import Skill, SkillCategory, SkillInput, SkillOutput
@@ -33,6 +33,14 @@ from .header_bidding import (
 )
 from .ad_slot_auditor import AdSlotAuditorSkill
 from .rollback_executor import RollbackExecutorSkill
+from .extra import (
+    InternalLinkBuilderSkill,
+    AdWrapperRendererSkill,
+    AdTelemetryBinderSkill,
+    SitemapUpdaterSkill,
+    ContentModulePublisherSkill,
+    PerfProbeBinderSkill,
+)
 
 __all__ = [
     # Base
@@ -93,4 +101,11 @@ __all__ = [
     "AdSlotAuditorSkill",
     # Rollback executor (Architecture §5.4)
     "RollbackExecutorSkill",
+    # SEO/AD extra skills (PRD §4.5, §5.2, Architecture §5.2-5.3)
+    "InternalLinkBuilderSkill",
+    "AdWrapperRendererSkill",
+    "AdTelemetryBinderSkill",
+    "SitemapUpdaterSkill",
+    "ContentModulePublisherSkill",
+    "PerfProbeBinderSkill",
 ]

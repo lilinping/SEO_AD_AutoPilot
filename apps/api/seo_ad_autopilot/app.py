@@ -1101,6 +1101,57 @@ def create_app(service: Optional[WorkflowService] = None) -> FastAPI:
     def skills() -> list[dict[str, object]]:
         return [skill.model_dump(mode="json", by_alias=True) for skill in svc().list_skills()]
 
+    @app.post("/api/scoring/score")
+    def score_proposal_endpoint(
+        request: dict[str, Any],
+        _: None = Depends(require_api_key),
+    ) -> dict[str, Any]:
+        """Score a proposal using the unified ScoringEngine (Architecture §6.2).
+
+        Request body:
+        {
+            "siteProfile": {...},
+            "opportunity": {...},
+            "pageSnapshot": {...},
+            "adAnalysis": {...},
+            "uxReview": {...}
+        }
+
+        Returns 5 scores (relevant, value, ux, ad_fit, risk) + deployment gate.
+        """
+        from .scoring import get_scoring_engine
+
+        engine = get_scoring_engine()
+        result = engine.score_proposal(
+            site_profile=request.get("siteProfile", {}),
+            opportunity=request.get("opportunity", {}),
+            page_snapshot=request.get("pageSnapshot", {}),
+            ad_analysis=request.get("adAnalysis", {}),
+            ux_review=request.get("uxReview", {}),
+        )
+        return result.to_dict()
+
+    @app.get("/api/scoring/thresholds")
+    def scoring_thresholds() -> dict[str, Any]:
+        """Return scoring thresholds from Architecture §7.2."""
+        from .scoring import (
+            RISK_BLOCK_AUTO_DEPLOY,
+            RISK_REQUIRE_MANUAL_MERGE,
+            RELEVANCE_MIN_FOR_RECOMMEND,
+            VALUE_MIN_FOR_RECOMMEND,
+            UX_MIN_FOR_AUTO,
+            AD_FIT_MIN_FOR_PROCEED,
+        )
+        return {
+            "riskBlockAutoDeploy": RISK_BLOCK_AUTO_DEPLOY,
+            "riskRequireManualMerge": RISK_REQUIRE_MANUAL_MERGE,
+            "relevanceMinForRecommend": RELEVANCE_MIN_FOR_RECOMMEND,
+            "valueMinForRecommend": VALUE_MIN_FOR_RECOMMEND,
+            "uxMinForAuto": UX_MIN_FOR_AUTO,
+            "adFitMinForProceed": AD_FIT_MIN_FOR_PROCEED,
+            "deploymentGates": ["allow", "require_approval", "block"],
+        }
+
     @app.get("/api/policy")
     def policy() -> dict[str, object]:
         return svc().get_policy().model_dump(mode="json", by_alias=True)
